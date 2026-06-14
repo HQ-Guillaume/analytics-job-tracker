@@ -171,6 +171,37 @@ try {
             }
         }
 
+        if ($headers.ContainsKey("review_priority")) {
+            $priorityColumn = [int]$headers["review_priority"]
+            try {
+                $priorityRange = $jobsSheet.Range($jobsSheet.Cells.Item(2, $priorityColumn), $jobsSheet.Cells.Item([Math]::Max($rowCount, 2), $priorityColumn))
+                $priorityFormatRuleCount = [int]$priorityRange.FormatConditions.Count
+                if ($priorityFormatRuleCount -lt 10) {
+                    Add-HealthWarning ("Expected dynamic priority formatting rules; found {0}." -f $priorityFormatRuleCount)
+                }
+                Release-ComObject $priorityRange
+            }
+            catch {
+                Add-HealthWarning "Priority conditional formatting could not be inspected."
+            }
+
+            if ($headers.ContainsKey("job_title")) {
+                $titleColumn = [int]$headers["job_title"]
+                for ($row = 2; $row -le $rowCount; $row++) {
+                    $title = [string]$jobsSheet.Cells.Item($row, $titleColumn).Text
+                    if ([string]::IsNullOrWhiteSpace($title)) {
+                        continue
+                    }
+
+                    $priorityFormula = [string]$jobsSheet.Cells.Item($row, $priorityColumn).Formula
+                    if ($priorityFormula -notmatch "^=IF\(") {
+                        Add-HealthWarning ("Priority is not formula-driven on row {0}." -f $row)
+                    }
+                    break
+                }
+            }
+        }
+
         if ($headers.ContainsKey("status") -and $headers.ContainsKey("notes")) {
             $statusColumn = [int]$headers["status"]
             $notesColumn = [int]$headers["notes"]

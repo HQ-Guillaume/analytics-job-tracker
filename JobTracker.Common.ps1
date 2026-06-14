@@ -374,6 +374,19 @@ function Set-StatusRowConditionalFormatting {
     }
 }
 
+function Get-JobTrackerStatusFormatRules {
+    return @(
+        @{ Status = "new"; Fill = Get-ExcelColor 255 255 255; Font = Get-ExcelColor 40 47 52; Bold = $false },
+        @{ Status = "interesting"; Fill = Get-ExcelColor 255 249 235; Font = Get-ExcelColor 146 64 14; Bold = $true },
+        @{ Status = "applied"; Fill = Get-ExcelColor 240 253 244; Font = Get-ExcelColor 34 113 72; Bold = $true },
+        @{ Status = "interview"; Fill = Get-ExcelColor 239 246 255; Font = Get-ExcelColor 37 99 235; Bold = $true },
+        @{ Status = "offer"; Fill = Get-ExcelColor 236 253 245; Font = Get-ExcelColor 34 113 72; Bold = $true },
+        @{ Status = "ignored"; Fill = Get-ExcelColor 248 250 252; Font = Get-ExcelColor 100 116 139; Bold = $false },
+        @{ Status = "rejected"; Fill = Get-ExcelColor 254 242 242; Font = Get-ExcelColor 185 28 28; Bold = $false },
+        @{ Status = "withdrawn"; Fill = Get-ExcelColor 245 245 245; Font = Get-ExcelColor 100 116 139; Bold = $false }
+    )
+}
+
 function Set-StatusCellConditionalFormatting {
     param(
         $Sheet,
@@ -388,28 +401,108 @@ function Set-StatusCellConditionalFormatting {
     $lastRow = [Math]::Max($LastDataRow + 200, 500)
     $statusColumnNumber = [int]$ColumnIndex["status"]
     $statusColumn = ConvertTo-ExcelColumnName $statusColumnNumber
-    $rules = @(
-        @{ Status = "new"; Color = Get-ExcelColor 40 47 52; Bold = $false },
-        @{ Status = "interesting"; Color = Get-ExcelColor 146 64 14; Bold = $true },
-        @{ Status = "applied"; Color = Get-ExcelColor 34 113 72; Bold = $true },
-        @{ Status = "interview"; Color = Get-ExcelColor 37 99 235; Bold = $true },
-        @{ Status = "offer"; Color = Get-ExcelColor 34 113 72; Bold = $true },
-        @{ Status = "ignored"; Color = Get-ExcelColor 100 116 139; Bold = $false },
-        @{ Status = "rejected"; Color = Get-ExcelColor 185 28 28; Bold = $false },
-        @{ Status = "withdrawn"; Color = Get-ExcelColor 100 116 139; Bold = $false }
-    )
+    $rules = Get-JobTrackerStatusFormatRules
 
     try {
         $statusRange = $Sheet.Range($Sheet.Cells.Item(2, $statusColumnNumber), $Sheet.Cells.Item($lastRow, $statusColumnNumber))
         $statusRange.FormatConditions.Delete()
+        $statusRange.Interior.Color = Get-ExcelColor 255 255 255
+        $statusRange.Font.Color = Get-ExcelColor 40 47 52
+        $statusRange.Font.Bold = $false
         foreach ($rule in $rules) {
             $formula = '=${0}2="{1}"' -f $statusColumn, $rule.Status
             $condition = $statusRange.FormatConditions.Add(2, 0, $formula)
-            $condition.Font.Color = $rule.Color
+            $condition.Interior.Color = $rule.Fill
+            $condition.Font.Color = $rule.Font
             $condition.Font.Bold = [bool]$rule.Bold
             Release-ComObject $condition
         }
         Release-ComObject $statusRange
+    }
+    catch {
+    }
+}
+
+function Set-ReviewPriorityFormulas {
+    param(
+        $Sheet,
+        [hashtable]$ColumnIndex,
+        [int]$LastDataRow
+    )
+
+    if ($null -eq $Sheet -or
+        -not $ColumnIndex.ContainsKey("review_priority") -or
+        -not $ColumnIndex.ContainsKey("status") -or
+        -not $ColumnIndex.ContainsKey("match_level") -or
+        -not $ColumnIndex.ContainsKey("is_new")) {
+        return
+    }
+
+    $lastRow = [Math]::Max(2, $LastDataRow)
+    try {
+        $priorityColumnNumber = [int]$ColumnIndex["review_priority"]
+        $statusColumnNumber = [int]$ColumnIndex["status"]
+        $matchColumnNumber = [int]$ColumnIndex["match_level"]
+        $isNewColumnNumber = [int]$ColumnIndex["is_new"]
+        $priorityRange = $Sheet.Range($Sheet.Cells.Item(2, $priorityColumnNumber), $Sheet.Cells.Item($lastRow, $priorityColumnNumber))
+        $priorityRange.FormulaR1C1 = '=IF(OR(RC{0}="applied",RC{0}="interview",RC{0}="offer",RC{0}="rejected",RC{0}="withdrawn"),"Application",IF(RC{0}="ignored","Ignored",IF(AND(RC{1}="yes",RC{2}="High"),"New High",IF(RC{1}="yes","New",IF(RC{2}="High","High",RC{2})))))' -f $statusColumnNumber, $isNewColumnNumber, $matchColumnNumber
+        Release-ComObject $priorityRange
+    }
+    catch {
+    }
+}
+
+function Set-ReviewPriorityConditionalFormatting {
+    param(
+        $Sheet,
+        [hashtable]$ColumnIndex,
+        [int]$LastDataRow
+    )
+
+    if ($null -eq $Sheet -or -not $ColumnIndex.ContainsKey("review_priority") -or -not $ColumnIndex.ContainsKey("status")) {
+        return
+    }
+
+    $lastRow = [Math]::Max($LastDataRow + 200, 500)
+    $priorityColumnNumber = [int]$ColumnIndex["review_priority"]
+    $statusColumn = ConvertTo-ExcelColumnName ([int]$ColumnIndex["status"])
+
+    try {
+        $priorityRange = $Sheet.Range($Sheet.Cells.Item(2, $priorityColumnNumber), $Sheet.Cells.Item($lastRow, $priorityColumnNumber))
+        $priorityRange.FormatConditions.Delete()
+        $priorityRange.Interior.Color = Get-ExcelColor 255 255 255
+        $priorityRange.Font.Color = Get-ExcelColor 40 47 52
+        $priorityRange.Font.Bold = $false
+
+        foreach ($rule in (Get-JobTrackerStatusFormatRules)) {
+            $formula = '=${0}2="{1}"' -f $statusColumn, $rule.Status
+            $condition = $priorityRange.FormatConditions.Add(2, 0, $formula)
+            $condition.Interior.Color = $rule.Fill
+            Release-ComObject $condition
+        }
+
+        $applicationFormula = '=OR(${0}2="applied",${0}2="interview",${0}2="offer",${0}2="rejected",${0}2="withdrawn")' -f $statusColumn
+        $applicationCondition = $priorityRange.FormatConditions.Add(2, 0, $applicationFormula)
+        $applicationCondition.Font.Color = Get-ExcelColor 34 113 72
+        $applicationCondition.Font.Bold = $true
+        Release-ComObject $applicationCondition
+
+        $ignoredFormula = '=${0}2="ignored"' -f $statusColumn
+        $ignoredCondition = $priorityRange.FormatConditions.Add(2, 0, $ignoredFormula)
+        $ignoredCondition.Font.Color = Get-ExcelColor 100 116 139
+        Release-ComObject $ignoredCondition
+
+        if ($ColumnIndex.ContainsKey("is_new") -and $ColumnIndex.ContainsKey("match_level")) {
+            $isNewColumn = ConvertTo-ExcelColumnName ([int]$ColumnIndex["is_new"])
+            $matchColumn = ConvertTo-ExcelColumnName ([int]$ColumnIndex["match_level"])
+            $newHighFormula = '=AND(${0}2="yes",${1}2="High",NOT(OR(${2}2="applied",${2}2="interview",${2}2="offer",${2}2="rejected",${2}2="withdrawn",${2}2="ignored")))' -f $isNewColumn, $matchColumn, $statusColumn
+            $newHighCondition = $priorityRange.FormatConditions.Add(2, 0, $newHighFormula)
+            $newHighCondition.Font.Color = Get-ExcelColor 146 64 14
+            $newHighCondition.Font.Bold = $true
+            Release-ComObject $newHighCondition
+        }
+
+        Release-ComObject $priorityRange
     }
     catch {
     }

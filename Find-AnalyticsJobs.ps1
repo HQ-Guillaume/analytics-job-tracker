@@ -1043,6 +1043,7 @@ function Export-TrackerWorkbook {
         }
 
         Set-JobTrackerDataValidation -Workbook $workbook -Excel $excel -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
+        Set-ReviewPriorityFormulas -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
 
         if ($rowCount -gt 0) {
             $dataRange = $jobsSheet.Range($jobsSheet.Cells.Item(2, 1), $jobsSheet.Cells.Item($lastDataRow, $lastColumn))
@@ -1051,30 +1052,14 @@ function Export-TrackerWorkbook {
             $dataRange.Interior.Color = Get-ExcelColor 255 255 255
             Set-StatusRowConditionalFormatting -Range $dataRange -ColumnIndex $columnIndex
             Set-StatusCellConditionalFormatting -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
+            Set-ReviewPriorityConditionalFormatting -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
             Set-IgnoredNotesReminderFormatting -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
         }
 
         $colors = Get-JobTrackerWorkbookColors -DarkTextColor $darkTextColor
         for ($excelRow = 2; $excelRow -le ($rowCount + 1); $excelRow++) {
-            $status = (Get-RowValue -Row $Rows[$excelRow - 2] -Name "status").ToLowerInvariant()
             $matchLevel = Get-RowValue -Row $Rows[$excelRow - 2] -Name "match_level"
-            $priority = Get-RowValue -Row $Rows[$excelRow - 2] -Name "review_priority"
             $seen = Get-RowValue -Row $Rows[$excelRow - 2] -Name "seen_in_current_crawl"
-
-            if ($columnIndex.ContainsKey("status")) {
-                $statusCell = $jobsSheet.Cells.Item($excelRow, [int]$columnIndex["status"])
-                $statusCell.Font.Bold = $false
-                switch ($status) {
-                    "interesting" { $statusCell.Font.Color = $colors.AmberText; $statusCell.Font.Bold = $true }
-                    "applied" { $statusCell.Font.Color = $colors.GreenText; $statusCell.Font.Bold = $true }
-                    "interview" { $statusCell.Font.Color = $colors.BlueText; $statusCell.Font.Bold = $true }
-                    "offer" { $statusCell.Font.Color = $colors.GreenText; $statusCell.Font.Bold = $true }
-                    "ignored" { $statusCell.Font.Color = $colors.GrayText }
-                    "rejected" { $statusCell.Font.Color = $colors.RedText }
-                    "withdrawn" { $statusCell.Font.Color = $colors.GrayText }
-                    default { $statusCell.Font.Color = $colors.DarkText }
-                }
-            }
 
             if ($columnIndex.ContainsKey("match_level")) {
                 $matchCell = $jobsSheet.Cells.Item($excelRow, [int]$columnIndex["match_level"])
@@ -1084,17 +1069,6 @@ function Export-TrackerWorkbook {
                     "Medium" { $matchCell.Font.Color = $colors.AmberText }
                     "Review" { $matchCell.Font.Color = $colors.GrayText; $matchCell.Font.Bold = $false }
                     default { $matchCell.Font.Color = $colors.DarkText }
-                }
-            }
-
-            if ($columnIndex.ContainsKey("review_priority")) {
-                $priorityCell = $jobsSheet.Cells.Item($excelRow, [int]$columnIndex["review_priority"])
-                $priorityCell.Font.Bold = $true
-                switch ($priority) {
-                    "Application" { $priorityCell.Font.Color = $colors.GreenText }
-                    "New High" { $priorityCell.Font.Color = $colors.AmberText }
-                    "Ignored" { $priorityCell.Font.Color = $colors.GrayText; $priorityCell.Font.Bold = $false }
-                    default { $priorityCell.Font.Color = $colors.DarkText; $priorityCell.Font.Bold = $false }
                 }
             }
 

@@ -132,6 +132,7 @@ try {
     }
 
     Set-JobTrackerDataValidation -Workbook $workbook -Excel $excel -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
+    Set-ReviewPriorityFormulas -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
 
     if ($rowCount -gt 1) {
         $dataRange = $sheet.Range($sheet.Cells.Item(2, 1), $sheet.Cells.Item($rowCount, $columnCount))
@@ -140,6 +141,7 @@ try {
         $dataRange.Interior.Color = Get-ExcelColor 255 255 255
         Set-StatusRowConditionalFormatting -Range $dataRange -ColumnIndex $headers
         Set-StatusCellConditionalFormatting -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
+        Set-ReviewPriorityConditionalFormatting -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
         Set-IgnoredNotesReminderFormatting -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
     }
 
@@ -154,23 +156,6 @@ try {
             }
         }
 
-        if ($headers.ContainsKey("status")) {
-            $status = ([string]$sheet.Cells.Item($row, [int]$headers["status"]).Text).ToLowerInvariant()
-            $statusCell = $sheet.Cells.Item($row, [int]$headers["status"])
-            Clear-CellFill $statusCell
-            $statusCell.Font.Bold = $false
-            switch ($status) {
-                "interesting" { $statusCell.Font.Color = $colors.AmberText; $statusCell.Font.Bold = $true }
-                "applied" { $statusCell.Font.Color = $colors.GreenText; $statusCell.Font.Bold = $true }
-                "interview" { $statusCell.Font.Color = $colors.BlueText; $statusCell.Font.Bold = $true }
-                "offer" { $statusCell.Font.Color = $colors.GreenText; $statusCell.Font.Bold = $true }
-                "ignored" { $statusCell.Font.Color = $colors.GrayText }
-                "rejected" { $statusCell.Font.Color = $colors.RedText }
-                "withdrawn" { $statusCell.Font.Color = $colors.GrayText }
-                default { $statusCell.Font.Color = $colors.DarkText }
-            }
-        }
-
         if ($headers.ContainsKey("match_level")) {
             $match = [string]$sheet.Cells.Item($row, [int]$headers["match_level"]).Text
             $matchCell = $sheet.Cells.Item($row, [int]$headers["match_level"])
@@ -181,19 +166,6 @@ try {
                 "Medium" { $matchCell.Font.Color = $colors.AmberText }
                 "Review" { $matchCell.Font.Color = $colors.GrayText; $matchCell.Font.Bold = $false }
                 default { $matchCell.Font.Color = $colors.DarkText }
-            }
-        }
-
-        if ($headers.ContainsKey("review_priority")) {
-            $priority = [string]$sheet.Cells.Item($row, [int]$headers["review_priority"]).Text
-            $priorityCell = $sheet.Cells.Item($row, [int]$headers["review_priority"])
-            Clear-CellFill $priorityCell
-            $priorityCell.Font.Bold = $true
-            switch ($priority) {
-                "Application" { $priorityCell.Font.Color = $colors.GreenText }
-                "New High" { $priorityCell.Font.Color = $colors.AmberText }
-                "Ignored" { $priorityCell.Font.Color = $colors.GrayText; $priorityCell.Font.Bold = $false }
-                default { $priorityCell.Font.Color = $colors.DarkText; $priorityCell.Font.Bold = $false }
             }
         }
 
