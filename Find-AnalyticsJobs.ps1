@@ -1050,6 +1050,7 @@ function Export-TrackerWorkbook {
             $dataRange.RowHeight = 30
             $dataRange.Interior.Color = Get-ExcelColor 255 255 255
             Set-StatusRowConditionalFormatting -Range $dataRange -ColumnIndex $columnIndex
+            Set-StatusCellConditionalFormatting -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
             Set-IgnoredNotesReminderFormatting -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
         }
 

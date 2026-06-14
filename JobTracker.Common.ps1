@@ -374,6 +374,47 @@ function Set-StatusRowConditionalFormatting {
     }
 }
 
+function Set-StatusCellConditionalFormatting {
+    param(
+        $Sheet,
+        [hashtable]$ColumnIndex,
+        [int]$LastDataRow
+    )
+
+    if ($null -eq $Sheet -or -not $ColumnIndex.ContainsKey("status")) {
+        return
+    }
+
+    $lastRow = [Math]::Max($LastDataRow + 200, 500)
+    $statusColumnNumber = [int]$ColumnIndex["status"]
+    $statusColumn = ConvertTo-ExcelColumnName $statusColumnNumber
+    $rules = @(
+        @{ Status = "new"; Color = Get-ExcelColor 40 47 52; Bold = $false },
+        @{ Status = "interesting"; Color = Get-ExcelColor 146 64 14; Bold = $true },
+        @{ Status = "applied"; Color = Get-ExcelColor 34 113 72; Bold = $true },
+        @{ Status = "interview"; Color = Get-ExcelColor 37 99 235; Bold = $true },
+        @{ Status = "offer"; Color = Get-ExcelColor 34 113 72; Bold = $true },
+        @{ Status = "ignored"; Color = Get-ExcelColor 100 116 139; Bold = $false },
+        @{ Status = "rejected"; Color = Get-ExcelColor 185 28 28; Bold = $false },
+        @{ Status = "withdrawn"; Color = Get-ExcelColor 100 116 139; Bold = $false }
+    )
+
+    try {
+        $statusRange = $Sheet.Range($Sheet.Cells.Item(2, $statusColumnNumber), $Sheet.Cells.Item($lastRow, $statusColumnNumber))
+        $statusRange.FormatConditions.Delete()
+        foreach ($rule in $rules) {
+            $formula = '=${0}2="{1}"' -f $statusColumn, $rule.Status
+            $condition = $statusRange.FormatConditions.Add(2, 0, $formula)
+            $condition.Font.Color = $rule.Color
+            $condition.Font.Bold = [bool]$rule.Bold
+            Release-ComObject $condition
+        }
+        Release-ComObject $statusRange
+    }
+    catch {
+    }
+}
+
 function Set-IgnoredNotesReminderFormatting {
     param(
         $Sheet,

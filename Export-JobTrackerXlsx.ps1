@@ -139,6 +139,7 @@ try {
         $dataRange.RowHeight = 30
         $dataRange.Interior.Color = Get-ExcelColor 255 255 255
         Set-StatusRowConditionalFormatting -Range $dataRange -ColumnIndex $headers
+        Set-StatusCellConditionalFormatting -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
         Set-IgnoredNotesReminderFormatting -Sheet $sheet -ColumnIndex $headers -LastDataRow $rowCount
     }
 

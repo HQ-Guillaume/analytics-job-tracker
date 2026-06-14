@@ -157,6 +157,18 @@ try {
                     Add-HealthWarning ("Unexpected status on row {0}: {1}" -f $row, $status)
                 }
             }
+
+            try {
+                $statusRange = $jobsSheet.Range($jobsSheet.Cells.Item(2, $statusColumn), $jobsSheet.Cells.Item([Math]::Max($rowCount, 2), $statusColumn))
+                $statusFormatRuleCount = [int]$statusRange.FormatConditions.Count
+                if ($statusFormatRuleCount -lt 8) {
+                    Add-HealthWarning ("Expected dynamic status text formatting rules; found {0}." -f $statusFormatRuleCount)
+                }
+                Release-ComObject $statusRange
+            }
+            catch {
+                Add-HealthWarning "Status text conditional formatting could not be inspected."
+            }
         }
 
         if ($headers.ContainsKey("status") -and $headers.ContainsKey("notes")) {
