@@ -22,7 +22,6 @@
   },
   "contract_fit_weights": {
     "preferred": 5,
-    "freelance": -4,
     "excluded": -100,
     "unknown": 0
   },

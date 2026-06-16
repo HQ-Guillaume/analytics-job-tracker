@@ -331,6 +331,69 @@ function Get-ColumnLabel {
     return $ColumnName
 }
 
+function Get-WorksheetHeaderMap {
+    param(
+        $Sheet,
+        [int]$ColumnCount,
+        [switch]$NormalizeLabels
+    )
+
+    $headers = @{}
+    for ($column = 1; $column -le $ColumnCount; $column++) {
+        $header = [string]$Sheet.Cells.Item(1, $column).Text
+        if ([string]::IsNullOrWhiteSpace($header)) {
+            continue
+        }
+
+        $canonicalName = ConvertTo-CanonicalColumnName $header.Trim()
+        $headers[$canonicalName] = $column
+        if ($NormalizeLabels) {
+            $Sheet.Cells.Item(1, $column).Value2 = Get-ColumnLabel $canonicalName
+        }
+    }
+
+    return $headers
+}
+
+function Backup-JobTrackerFile {
+    param(
+        [string]$Path,
+        [int]$MaxBackups = 5,
+        [string]$Suffix = ""
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return ""
+    }
+
+    $backupDirectory = Join-Path (Split-Path -Parent $Path) "backups"
+    if (-not (Test-Path -LiteralPath $backupDirectory)) {
+        New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
+    }
+
+    $stamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    $baseName = [IO.Path]::GetFileNameWithoutExtension($Path)
+    $extension = [IO.Path]::GetExtension($Path)
+    $safeSuffix = ""
+    if (-not [string]::IsNullOrWhiteSpace($Suffix)) {
+        $safeSuffix = "_{0}" -f (([regex]::Replace($Suffix, "[^a-zA-Z0-9_-]+", "_")).Trim("_"))
+    }
+
+    $backupPath = Join-Path $backupDirectory ("{0}{1}_{2}{3}" -f $baseName, $safeSuffix, $stamp, $extension)
+    Copy-Item -LiteralPath $Path -Destination $backupPath -Force
+
+    if ($MaxBackups -gt 0) {
+        $oldBackups = @(Get-ChildItem -LiteralPath $backupDirectory -File -Filter ("{0}_*{1}" -f $baseName, $extension) | Sort-Object LastWriteTime -Descending)
+        if ($oldBackups.Count -gt $MaxBackups) {
+            $oldBackups | Select-Object -Skip $MaxBackups | ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Force
+            }
+        }
+    }
+
+    return $backupPath
+}
+
 function Release-ComObject {
     param([AllowNull()]$Object)
 

@@ -30,3 +30,7 @@ jobs:
       - name: Run no-Excel scoring tests
         shell: pwsh
         run: ./Test-ScoringRules.ps1
+
+      - name: Run parser fixture tests
+        shell: pwsh
+        run: ./Test-ParserFixtures.ps1

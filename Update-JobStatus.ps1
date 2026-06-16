@@ -38,27 +38,7 @@ $ColumnLabels = Get-JobTrackerColumnLabels
 function Backup-TrackerFile {
     param([string]$Path)
 
-    $backupDirectory = Join-Path (Split-Path -Parent $Path) "backups"
-    if (-not (Test-Path $backupDirectory)) {
-        New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
-    }
-
-    $stamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-    $baseName = [IO.Path]::GetFileNameWithoutExtension($Path)
-    $extension = [IO.Path]::GetExtension($Path)
-    $backupPath = Join-Path $backupDirectory ("{0}_before_status_{1}{2}" -f $baseName, $stamp, $extension)
-    Copy-Item -LiteralPath $Path -Destination $backupPath -Force
-
-    if ($MaxBackups -gt 0) {
-        $oldBackups = @(Get-ChildItem -LiteralPath $backupDirectory -File -Filter ("{0}_*{1}" -f $baseName, $extension) | Sort-Object LastWriteTime -Descending)
-        if ($oldBackups.Count -gt $MaxBackups) {
-            $oldBackups | Select-Object -Skip $MaxBackups | ForEach-Object {
-                Remove-Item -LiteralPath $_.FullName -Force
-            }
-        }
-    }
-
-    return $backupPath
+    return Backup-JobTrackerFile -Path $Path -MaxBackups $MaxBackups -Suffix "before_status"
 }
 
 function Get-HeaderMap {
@@ -67,15 +47,7 @@ function Get-HeaderMap {
         [int]$ColumnCount
     )
 
-    $headers = @{}
-    for ($column = 1; $column -le $ColumnCount; $column++) {
-        $header = [string]$Sheet.Cells.Item(1, $column).Text
-        if (-not [string]::IsNullOrWhiteSpace($header)) {
-            $headers[(ConvertTo-CanonicalColumnName $header.Trim())] = $column
-        }
-    }
-
-    return $headers
+    return Get-WorksheetHeaderMap -Sheet $Sheet -ColumnCount $ColumnCount
 }
 
 function Get-CellText {

@@ -4,13 +4,33 @@ param(
     [string]$Location = "France",
     [string]$TrackerPath = "",
     [string]$WelcomeKitApiKey = $env:WK_API_KEY,
+    [string]$FranceTravailClientId = $env:FRANCE_TRAVAIL_CLIENT_ID,
+    [string]$FranceTravailClientSecret = $env:FRANCE_TRAVAIL_CLIENT_SECRET,
+    [string]$FranceTravailScope = $(if ([string]::IsNullOrWhiteSpace($env:FRANCE_TRAVAIL_SCOPE)) { "api_offresdemploiv2 o2dsoffre" } else { $env:FRANCE_TRAVAIL_SCOPE }),
+    [string]$AdzunaAppId = $env:ADZUNA_APP_ID,
+    [string]$AdzunaAppKey = $env:ADZUNA_APP_KEY,
+    [ValidateSet("Fast", "Default", "Deep")]
+    [string]$CrawlMode = "Default",
     [int]$MaxLinkedInSearchPages = 3,
+    [int]$MaxLinkedInDetails = 0,
+    [int]$MaxFranceTravailPages = 2,
+    [int]$MaxAdzunaPages = 1,
+    [int]$MaxApecPages = 2,
+    [int]$MaxHelloWorkPages = 1,
+    [int]$MaxHelloWorkCardsPerQuery = 20,
+    [int]$MaxHelloWorkDetails = 50,
     [int]$MaxWelcomeKitPages = 10,
     [int]$MaxWttjCandidatePages = 120,
     [int]$MaxBackups = 5,
+    [switch]$SkipFranceTravail,
+    [switch]$SkipAdzuna,
+    [switch]$SkipApec,
+    [switch]$SkipHelloWork,
     [switch]$SkipLinkedIn,
     [switch]$SkipWttj,
     [switch]$DisableWttjPublicFallback,
+    [switch]$DisableCache,
+    [int]$CacheTtlHours = 24,
     [switch]$SelfTest
 )
 
@@ -27,6 +47,37 @@ $CutoffDate = $Cutoff.ToString("yyyy-MM-dd")
 $RunDate = Get-Date -Format "yyyy-MM-dd"
 $RunStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $DefaultTrackerPath = Join-Path $PSScriptRoot "output\jobs_tracker.xlsx"
+$CacheDirectory = Join-Path $PSScriptRoot "output\cache"
+
+switch ($CrawlMode) {
+    "Fast" {
+        if (-not $PSBoundParameters.ContainsKey("MaxLinkedInSearchPages")) { $MaxLinkedInSearchPages = 2 }
+        if (-not $PSBoundParameters.ContainsKey("MaxLinkedInDetails")) { $MaxLinkedInDetails = 35 }
+        if (-not $PSBoundParameters.ContainsKey("MaxFranceTravailPages")) { $MaxFranceTravailPages = 1 }
+        if (-not $PSBoundParameters.ContainsKey("MaxAdzunaPages")) { $MaxAdzunaPages = 1 }
+        if (-not $PSBoundParameters.ContainsKey("MaxApecPages")) { $MaxApecPages = 1 }
+        if (-not $PSBoundParameters.ContainsKey("MaxHelloWorkPages")) { $MaxHelloWorkPages = 1 }
+        if (-not $PSBoundParameters.ContainsKey("MaxHelloWorkCardsPerQuery")) { $MaxHelloWorkCardsPerQuery = 12 }
+        if (-not $PSBoundParameters.ContainsKey("MaxHelloWorkDetails")) { $MaxHelloWorkDetails = 25 }
+        if (-not $PSBoundParameters.ContainsKey("MaxWelcomeKitPages")) { $MaxWelcomeKitPages = 6 }
+        if (-not $PSBoundParameters.ContainsKey("MaxWttjCandidatePages")) { $MaxWttjCandidatePages = 50 }
+    }
+    "Deep" {
+        if (-not $PSBoundParameters.ContainsKey("MaxLinkedInSearchPages")) { $MaxLinkedInSearchPages = 4 }
+        if (-not $PSBoundParameters.ContainsKey("MaxLinkedInDetails")) { $MaxLinkedInDetails = 160 }
+        if (-not $PSBoundParameters.ContainsKey("MaxFranceTravailPages")) { $MaxFranceTravailPages = 3 }
+        if (-not $PSBoundParameters.ContainsKey("MaxAdzunaPages")) { $MaxAdzunaPages = 2 }
+        if (-not $PSBoundParameters.ContainsKey("MaxApecPages")) { $MaxApecPages = 3 }
+        if (-not $PSBoundParameters.ContainsKey("MaxHelloWorkPages")) { $MaxHelloWorkPages = 2 }
+        if (-not $PSBoundParameters.ContainsKey("MaxHelloWorkCardsPerQuery")) { $MaxHelloWorkCardsPerQuery = 30 }
+        if (-not $PSBoundParameters.ContainsKey("MaxHelloWorkDetails")) { $MaxHelloWorkDetails = 120 }
+        if (-not $PSBoundParameters.ContainsKey("MaxWelcomeKitPages")) { $MaxWelcomeKitPages = 15 }
+        if (-not $PSBoundParameters.ContainsKey("MaxWttjCandidatePages")) { $MaxWttjCandidatePages = 220 }
+    }
+    default {
+        if (-not $PSBoundParameters.ContainsKey("MaxLinkedInDetails")) { $MaxLinkedInDetails = 80 }
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
     $TrackerPath = $DefaultTrackerPath
@@ -37,10 +88,16 @@ if ([IO.Path]::GetExtension($TrackerPath).ToLowerInvariant() -ne ".xlsx") {
 
 $SeenResultKeys = @{}
 $LinkedInDelayMilliseconds = 1200
+$AdzunaDelayMilliseconds = 2500
+$ApecDelayMilliseconds = 300
+$HelloWorkSearchDelayMilliseconds = 350
+$HelloWorkDetailDelayMilliseconds = 450
 $MinimumMatchScore = 35
 $JobCrawlerPreferences = $null
+$FeedbackLearningProfile = $null
+$SourceRunStats = New-Object System.Collections.Generic.List[object]
 
-$WttjUrlCandidatePattern = "(?i)(web[-_\s]*analyst|digital[-_\s]*analyst|web[-_\s]*analytics|digital[-_\s]*analytics|analytics[-_\s]*(consultant|specialist|manager|engineer)|tracking|taggage|tagging|data[-_\s]*analyst|(^|[-_\s])ga4($|[-_\s])|(^|[-_\s])gtm($|[-_\s])|google[-_\s]*(analytics|tag[-_\s]*manager)|piano|contentsquare|content[-_\s]*square|(^|[-_\s])cro($|[-_\s]))"
+$WttjUrlCandidatePattern = "(?i)(web[-_\s]*analyst|digital[-_\s]*analyst|web[-_\s]*analytics|digital[-_\s]*analytics|analytics[-_\s]*(consultant|specialist|manager|engineer)|tracking|taggage|tagging|data[-_\s]*analyst|(^|[-_\s])ga4($|[-_\s])|(^|[-_\s])gtm($|[-_\s])|google[-_\s]*(analytics|tag[-_\s]*manager)|piano|contentsquare|content[-_\s]*square|tag[-_\s]*commander|commanders?[-_\s]*act|tealium|server[-_\s]*side|(^|[-_\s])rgpd($|[-_\s])|(^|[-_\s])gdpr($|[-_\s])|(^|[-_\s])cro($|[-_\s]))"
 
 $LinkedInQueries = @(
     "web analyst google tag manager",
@@ -57,7 +114,32 @@ $LinkedInQueries = @(
     "charge performance digital google analytics",
     "piano analytics",
     "contentsquare analytics",
+    "tag commander analytics",
+    "commanders act analytics",
+    "tealium analytics",
+    "server side tracking",
+    "rgpd analytics",
     "tagging plan analytics"
+)
+
+$ApiSearchQueries = @(
+    "web analyst",
+    "digital analyst",
+    "web analytics",
+    "digital analytics",
+    "tracking analyst",
+    "tracking analytics",
+    "google analytics",
+    "google tag manager",
+    "piano analytics",
+    "contentsquare",
+    "tag commander",
+    "commanders act",
+    "tealium",
+    "server side tracking",
+    "rgpd analytics",
+    "cro analytics",
+    "performance digital analytics"
 )
 
 function Repair-DisplayText {
@@ -69,26 +151,68 @@ function Repair-DisplayText {
 
     $clean = [string]$Text
     $clean = $clean.Replace(([string][char]0x00A0), " ")
-    $clean = $clean.Replace(([string][char]0x2018), "'")
-    $clean = $clean.Replace(([string][char]0x2019), "'")
-    $clean = $clean.Replace(([string][char]0x201C), '"')
-    $clean = $clean.Replace(([string][char]0x201D), '"')
-    $clean = $clean.Replace(([string][char]0x2013), "-")
-    $clean = $clean.Replace(([string][char]0x2014), "-")
+
+    $mojibakeScore = {
+        param([string]$Value)
+
+        if ([string]::IsNullOrWhiteSpace($Value)) {
+            return 0
+        }
+
+        $score = 0
+        foreach ($marker in @(
+            [string][char]0x00C2,
+            [string][char]0x00C3,
+            [string][char]0x00E2,
+            [string][char]0x251C,
+            [string][char]0xFFFD
+        )) {
+            $score += [regex]::Matches($Value, [regex]::Escape($marker)).Count
+        }
+
+        return $score
+    }
+
+    if (& $mojibakeScore $clean) {
+        foreach ($codePage in @(1252, 850, 437)) {
+            try {
+                $sourceEncoding = [Text.Encoding]::GetEncoding($codePage)
+                $decoded = [Text.Encoding]::UTF8.GetString($sourceEncoding.GetBytes($clean))
+                if (-not [string]::IsNullOrWhiteSpace($decoded) -and (& $mojibakeScore $decoded) -lt (& $mojibakeScore $clean)) {
+                    $clean = $decoded
+                    break
+                }
+            }
+            catch {
+            }
+        }
+    }
 
     $mojibakeReplacements = @(
-        @{ From = ([string][char]0x00C3 + [string][char]0x00A9); To = "e" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00A8); To = "e" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00AA); To = "e" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00AB); To = "e" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00A0); To = "a" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00A2); To = "a" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00B4); To = "o" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00B9); To = "u" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00BB); To = "u" },
-        @{ From = ([string][char]0x00C3 + [string][char]0x00A7); To = "c" },
-        @{ From = ([string][char]0x251C + [string][char]0x00A1); To = "a" },
-        @{ From = ([string][char]0x251C + [string][char]0x00A9); To = "e" },
+        @{ From = ([string][char]0x00C3 + [string][char]0x0080); To = ([string][char]0x00C0) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x0087); To = ([string][char]0x00C7) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x0088); To = ([string][char]0x00C8) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x0089); To = ([string][char]0x00C9) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x008A); To = ([string][char]0x00CA) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00A0); To = ([string][char]0x00E0) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00A2); To = ([string][char]0x00E2) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00A7); To = ([string][char]0x00E7) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00A8); To = ([string][char]0x00E8) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00A9); To = ([string][char]0x00E9) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00AA); To = ([string][char]0x00EA) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00AB); To = ([string][char]0x00EB) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00AE); To = ([string][char]0x00EE) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00AF); To = ([string][char]0x00EF) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00B4); To = ([string][char]0x00F4) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00B9); To = ([string][char]0x00F9) },
+        @{ From = ([string][char]0x00C3 + [string][char]0x00BB); To = ([string][char]0x00FB) },
+        @{ From = ([string][char]0x251C + [string][char]0x00A1); To = ([string][char]0x00E0) },
+        @{ From = ([string][char]0x251C + [string][char]0x00E1); To = ([string][char]0x00E0) },
+        @{ From = ([string][char]0x251C + [string][char]0x00A7); To = ([string][char]0x00E7) },
+        @{ From = ([string][char]0x251C + [string][char]0x00A8); To = ([string][char]0x00E8) },
+        @{ From = ([string][char]0x251C + [string][char]0x00A9); To = ([string][char]0x00E9) },
+        @{ From = ([string][char]0x251C + [string][char]0x00AE); To = ([string][char]0x00E9) },
+        @{ From = ([string][char]0x251C + [string][char]0x00AA); To = ([string][char]0x00EA) },
         @{ From = ([string][char]0x00E2 + [string][char]0x0080 + [string][char]0x0099); To = "'" },
         @{ From = ([string][char]0x00E2 + [string][char]0x0080 + [string][char]0x0093); To = "-" }
     )
@@ -96,6 +220,13 @@ function Repair-DisplayText {
     foreach ($replacement in $mojibakeReplacements) {
         $clean = $clean.Replace([string]$replacement.From, [string]$replacement.To)
     }
+
+    $clean = $clean.Replace(([string][char]0x2018), "'")
+    $clean = $clean.Replace(([string][char]0x2019), "'")
+    $clean = $clean.Replace(([string][char]0x201C), '"')
+    $clean = $clean.Replace(([string][char]0x201D), '"')
+    $clean = $clean.Replace(([string][char]0x2013), "-")
+    $clean = $clean.Replace(([string][char]0x2014), "-")
 
     return ([regex]::Replace($clean, "\s+", " ")).Trim()
 }
@@ -146,6 +277,106 @@ function Write-CountProgress {
     Write-RunStatus ("{0}: {1}/{2} ({3}%){4}" -f $Activity, $Current, $Total, $percent, $foundText)
 }
 
+function Start-SourceStats {
+    param([string]$Source)
+
+    return [ordered]@{
+        Source          = $Source
+        StartedAt       = [DateTimeOffset]::Now
+        FinishedAt      = $null
+        DurationSeconds = 0
+        SearchRequests  = 0
+        DetailRequests  = 0
+        CacheHits       = 0
+        Candidates      = 0
+        SelectedDetails = 0
+        SkippedOld      = 0
+        SkippedContract = 0
+        SkippedNoMatch  = 0
+        SkippedByCap    = 0
+        Errors          = 0
+        Matches         = 0
+        Notes           = ""
+    }
+}
+
+function Add-SourceMetric {
+    param(
+        [AllowNull()]$Stats,
+        [string]$Name,
+        [int]$Amount = 1
+    )
+
+    if ($null -eq $Stats -or -not $Stats.Contains($Name)) {
+        return
+    }
+
+    $Stats[$Name] = [int]$Stats[$Name] + $Amount
+}
+
+function Set-SourceNote {
+    param(
+        [AllowNull()]$Stats,
+        [AllowNull()][string]$Note
+    )
+
+    if ($null -eq $Stats -or [string]::IsNullOrWhiteSpace($Note)) {
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace([string]$Stats["Notes"])) {
+        $Stats["Notes"] = $Note
+    }
+    else {
+        $Stats["Notes"] = "{0}; {1}" -f $Stats["Notes"], $Note
+    }
+}
+
+function Complete-SourceStats {
+    param([AllowNull()]$Stats)
+
+    if ($null -eq $Stats) {
+        return
+    }
+
+    $Stats["FinishedAt"] = [DateTimeOffset]::Now
+    $Stats["DurationSeconds"] = [int][Math]::Round((([DateTimeOffset]$Stats["FinishedAt"]) - ([DateTimeOffset]$Stats["StartedAt"])).TotalSeconds, 0)
+    $script:SourceRunStats.Add([PSCustomObject]$Stats) | Out-Null
+    Write-RunStatus ("{0} diagnostics: {1}s, search {2}, details {3}, cache hits {4}, candidates {5}, selected {6}, old {7}, contract {8}, no-match {9}, cap {10}, errors {11}, matches {12}." -f `
+            $Stats["Source"],
+            $Stats["DurationSeconds"],
+            $Stats["SearchRequests"],
+            $Stats["DetailRequests"],
+            $Stats["CacheHits"],
+            $Stats["Candidates"],
+            $Stats["SelectedDetails"],
+            $Stats["SkippedOld"],
+            $Stats["SkippedContract"],
+            $Stats["SkippedNoMatch"],
+            $Stats["SkippedByCap"],
+            $Stats["Errors"],
+            $Stats["Matches"])
+}
+
+function Get-SourceStatsSummaryText {
+    if ($script:SourceRunStats.Count -eq 0) {
+        return ""
+    }
+
+    $parts = foreach ($stat in @($script:SourceRunStats.ToArray())) {
+        "{0}: {1}s, {2} match(es), {3} candidate(s), {4} detail(s), {5} cap-skip, {6} cache-hit(s)" -f `
+            $stat.Source,
+            $stat.DurationSeconds,
+            $stat.Matches,
+            $stat.Candidates,
+            $stat.DetailRequests,
+            $stat.SkippedByCap,
+            $stat.CacheHits
+    }
+
+    return ($parts -join " | ")
+}
+
 function ConvertTo-QueryString {
     param([hashtable]$Params)
 
@@ -178,6 +409,25 @@ function ConvertFrom-HtmlAttribute {
     return Repair-DisplayText ([System.Net.WebUtility]::HtmlDecode($Value))
 }
 
+function Get-HtmlAttributeValue {
+    param(
+        [AllowNull()][string]$Html,
+        [string]$Name
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Html) -or [string]::IsNullOrWhiteSpace($Name)) {
+        return ""
+    }
+
+    $pattern = "(?is)\b{0}\s*=\s*[""'](?<value>[^""']*)[""']" -f [regex]::Escape($Name)
+    $match = [regex]::Match($Html, $pattern)
+    if (-not $match.Success) {
+        return ""
+    }
+
+    return ConvertFrom-HtmlAttribute $match.Groups["value"].Value
+}
+
 function ConvertTo-MatchText {
     param([AllowNull()][string]$Text)
 
@@ -205,6 +455,101 @@ function ConvertTo-CleanUrl {
     return $clean
 }
 
+function ConvertTo-SafeCacheKey {
+    param([string]$Value)
+
+    $bytes = [Text.Encoding]::UTF8.GetBytes([string]$Value)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return (($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-CacheFilePath {
+    param(
+        [string]$Scope,
+        [string]$Key
+    )
+
+    $safeScope = ([regex]::Replace((ConvertTo-MatchText $Scope), "[^a-z0-9_-]+", "_")).Trim("_")
+    if ([string]::IsNullOrWhiteSpace($safeScope)) {
+        $safeScope = "default"
+    }
+
+    return Join-Path (Join-Path $CacheDirectory $safeScope) ("{0}.txt" -f (ConvertTo-SafeCacheKey $Key))
+}
+
+function Get-CachedText {
+    param(
+        [string]$Scope,
+        [string]$Key,
+        [int]$TtlHours = $CacheTtlHours
+    )
+
+    if ($DisableCache -or $TtlHours -le 0) {
+        return $null
+    }
+
+    $path = Get-CacheFilePath -Scope $Scope -Key $Key
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $null
+    }
+
+    $item = Get-Item -LiteralPath $path
+    if ($item.LastWriteTime -lt (Get-Date).AddHours(-[Math]::Abs($TtlHours))) {
+        return $null
+    }
+
+    return [IO.File]::ReadAllText($item.FullName, [Text.Encoding]::UTF8)
+}
+
+function Set-CachedText {
+    param(
+        [string]$Scope,
+        [string]$Key,
+        [AllowNull()][string]$Text
+    )
+
+    if ($DisableCache -or [string]::IsNullOrWhiteSpace($Text)) {
+        return
+    }
+
+    $path = Get-CacheFilePath -Scope $Scope -Key $Key
+    $directory = Split-Path -Parent $path
+    if (-not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    }
+
+    [IO.File]::WriteAllText($path, [string]$Text, [Text.Encoding]::UTF8)
+}
+
+function ConvertTo-AbsoluteUrl {
+    param(
+        [string]$BaseUrl,
+        [string]$Href
+    )
+
+    $cleanHref = ConvertFrom-HtmlAttribute $Href
+    if ([string]::IsNullOrWhiteSpace($cleanHref)) {
+        return ""
+    }
+
+    if ($cleanHref -match "^https?://") {
+        return ConvertTo-CleanUrl $cleanHref
+    }
+
+    try {
+        $baseUri = [Uri]::new($BaseUrl)
+        return ConvertTo-CleanUrl ([Uri]::new($baseUri, $cleanHref).AbsoluteUri)
+    }
+    catch {
+        return ConvertTo-CleanUrl $cleanHref
+    }
+}
+
 function ConvertTo-DateTimeOffsetOrNull {
     param([AllowNull()][string]$Value)
 
@@ -221,14 +566,65 @@ function ConvertTo-DateTimeOffsetOrNull {
     return $null
 }
 
+function ConvertFrom-FrenchRelativeDateText {
+    param([AllowNull()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $null
+    }
+
+    $clean = ConvertTo-MatchText (ConvertFrom-HtmlText $Text)
+    $now = [DateTimeOffset]::Now
+    if ($clean -match "aujourd.?hui|quelques\s+(secondes|minutes)|a\s+l.?instant") {
+        return $now
+    }
+    if ($clean -match "\bhier\b") {
+        return $now.AddDays(-1)
+    }
+
+    $hoursMatch = [regex]::Match($clean, "il\s+y\s+a\s+(?<value>\d+)\s+h")
+    if ($hoursMatch.Success) {
+        return $now.AddHours(-[int]$hoursMatch.Groups["value"].Value)
+    }
+
+    $dayMatch = [regex]::Match($clean, "il\s+y\s+a\s+(?<value>\d+)\s+j")
+    if ($dayMatch.Success) {
+        return $now.AddDays(-[int]$dayMatch.Groups["value"].Value)
+    }
+
+    $weekMatch = [regex]::Match($clean, "il\s+y\s+a\s+(?<value>\d+)\s+sem")
+    if ($weekMatch.Success) {
+        return $now.AddDays(-7 * [int]$weekMatch.Groups["value"].Value)
+    }
+
+    $dateMatch = [regex]::Match($clean, "(?<day>\d{1,2})[/-](?<month>\d{1,2})[/-](?<year>\d{4})")
+    if ($dateMatch.Success) {
+        $dateText = "{0}-{1}-{2}" -f $dateMatch.Groups["year"].Value, $dateMatch.Groups["month"].Value.PadLeft(2, "0"), $dateMatch.Groups["day"].Value.PadLeft(2, "0")
+        return ConvertTo-DateTimeOffsetOrNull $dateText
+    }
+
+    return $null
+}
+
 function Test-IsRecent {
-    param([AllowNull()][DateTimeOffset]$PublishedAt)
+    param([AllowNull()]$PublishedAt)
 
     if ($null -eq $PublishedAt) {
         return $false
     }
 
-    return $PublishedAt -ge $Cutoff
+    $publishedDateValue = $null
+    if ($PublishedAt -is [DateTimeOffset]) {
+        $publishedDateValue = $PublishedAt
+    }
+    elseif ($PublishedAt -is [DateTime]) {
+        $publishedDateValue = [DateTimeOffset]$PublishedAt
+    }
+    else {
+        $publishedDateValue = ConvertTo-DateTimeOffsetOrNull ([string]$PublishedAt)
+    }
+
+    return ($null -ne $publishedDateValue -and $publishedDateValue -ge $Cutoff)
 }
 
 function Add-MatchSignal {
@@ -261,7 +657,7 @@ function Get-JobMatch {
         Keywords = @{}
     }
     $isGoToMarketContext = $fullText -match "go\s*[- ]?\s*to\s*[- ]?\s*market|\banalytics\s+engineer\s+gtm\b|\bgtm\s+(strategy|strategies|motion|motions|operations|ops|sales|revenue|revops|demand|pipeline|finance|engineer|generation|outbound|inbound)\b|\b(growth|demand|pipeline|revops|revenue|sales|finance|outbound|inbound)\s+gtm\b|\b(head|director|manager|lead|chief)\s+of\s+gtm\b|\b(sdr|bdr)\b.*\bgtm\b"
-    $webAnalyticsToolPattern = "google\s+tag\s+manager|google\s+analytics|\bga4\b|piano\s+analytics|contentsquare|content\s+square|matomo|adobe\s+analytics|omniture|data\s*layer|datalayer|tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)|consent\s+mode|cookie\s+consent"
+    $webAnalyticsToolPattern = "google\s+tag\s+manager|google\s+analytics|\bga4\b|piano\s+analytics|contentsquare|content\s+square|tag\s+commander|commanders?\s+act|\btealium\b|tealium\s+iq|matomo|adobe\s+analytics|omniture|data\s*layer|datalayer|tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)|consent\s+mode|cookie\s+consent|server\s*[- ]?\s*side\s+(tracking|tagging|analytics)|tracking\s+server\s*[- ]?\s*side|tagging\s+server\s*[- ]?\s*side|server\s+container|\bsgtm\b"
     $hasWebAnalyticsToolSignal = ($fullText -match $webAnalyticsToolPattern) -or (-not $isGoToMarketContext -and $fullText -match "\bgtm\b")
     $hasDigitalAnalyticsContext = $hasWebAnalyticsToolSignal -or ($titleText -match "\bweb\s*analyst\b|\bdigital\s*analyst\b|analyste\s+(digital|web)|web\s+analytics|digital\s+analytics|tracking|webtracking|taggage|tagging|analytics?\s+consultant|performance\s+digital|performance\s+digitale|digital\s+performance|\bcro\b|conversion")
     $isMarketingOnlyContext = ($fullText -match "\bseo\b|\bsea\b|paid\s+social|paid\s+search|paid\s+media|performance\s+marketing|growth\s+marketing|acquisition\s+marketing|digital\s+marketing|social\s+media|content\s+marketing|campaign\s+manager|media\s+buyer") -and -not $hasDigitalAnalyticsContext
@@ -284,10 +680,14 @@ function Get-JobMatch {
     Add-MatchSignal $state $fullText "google\s+analytics|\bga4\b" "Google Analytics/GA4" 35
     Add-MatchSignal $state $fullText "piano\s+analytics" "Piano Analytics" 35
     Add-MatchSignal $state $fullText "contentsquare|content\s+square" "ContentSquare" 35
+    Add-MatchSignal $state $fullText "tag\s+commander|commanders?\s+act" "Tag Commander/Commanders Act" 35
+    Add-MatchSignal $state $fullText "\btealium\b|tealium\s+iq" "Tealium" 35
     Add-MatchSignal $state $fullText "data\s*layer|datalayer" "dataLayer" 25
     Add-MatchSignal $state $fullText "plan\s+de\s+(taggage|marquage)|tagging\s+plan|tracking\s+plan" "tagging plan" 30
     Add-MatchSignal $state $fullText "tracking|taggage|tagging|tag\s+management" "tracking/tagging" 20
+    Add-MatchSignal $state $fullText "server\s*[- ]?\s*side\s+(tracking|tagging|analytics)|tracking\s+server\s*[- ]?\s*side|tagging\s+server\s*[- ]?\s*side|server\s+container|\bsgtm\b" "server-side tracking" 20
     Add-MatchSignal $state $fullText "consent\s+mode|cmp|cookie\s+consent" "consent tracking" 20
+    Add-MatchSignal $state $fullText "\brgpd\b|\bgdpr\b|protection\s+des\s+donnees|protection\s+des\s+donn[eé]es|privacy|conformit[eé]" "RGPD/GDPR" 10
     Add-MatchSignal $state $fullText "a/b\s*test|ab\s*test|experimentation" "A/B testing" 15
     Add-MatchSignal $state $fullText "matomo|adobe\s+analytics|omniture" "other analytics tools" 20
     Add-MatchSignal $state $fullText "looker\s+studio|data\s+studio|dashboard|reporting|tableau\s+de\s+bord" "reporting/dashboard" 10
@@ -309,6 +709,10 @@ function Get-JobMatch {
         $state.Score -= 60
         $state.Keywords["possible SEO-only role"] = $true
     }
+    if ($titleText -match "people\s+business\s+partner|\bhr\b|human\s+resources|ressources\s+humaines|talent\s+acquisition|recruiter|recruteur|recrutement|charg[eé]\s+de\s+recrutement" -and -not $hasCoreTitleSignal) {
+        $state.Score -= 60
+        $state.Keywords["possible HR/recruiting role"] = $true
+    }
     if ($isGoToMarketContext) {
         $state.Score -= 35
         $state.Keywords["possible go-to-market role"] = $true
@@ -328,6 +732,20 @@ function Get-JobMatch {
     if ($fullText -match "software\s+engineer|data\s+engineer|sales\s+engineer|backend|frontend|devops") {
         $state.Score -= 15
         $state.Keywords["possible engineering role"] = $true
+    }
+
+    $learning = Get-FeedbackLearningAdjustment `
+        -FullText $fullText `
+        -HasCoreTitleSignal:$hasCoreTitleSignal `
+        -HasWebAnalyticsToolSignal:$hasWebAnalyticsToolSignal `
+        -HasDigitalAnalyticsContext:$hasDigitalAnalyticsContext
+    if ($null -ne $learning -and [int]$learning.Adjustment -ne 0) {
+        $state.Score += [int]$learning.Adjustment
+        foreach ($reason in @($learning.Reasons)) {
+            if (-not [string]::IsNullOrWhiteSpace($reason)) {
+                $state.Keywords[$reason] = $true
+            }
+        }
     }
 
     if ($state.Score -lt 0) {
@@ -423,6 +841,172 @@ function Get-ContractTypeFromText {
     return ""
 }
 
+function Get-FranceTravailAccessToken {
+    if ([string]::IsNullOrWhiteSpace($FranceTravailClientId) -or [string]::IsNullOrWhiteSpace($FranceTravailClientSecret)) {
+        Write-RunStatus "France Travail credentials not set; skipping France Travail source. Set FRANCE_TRAVAIL_CLIENT_ID and FRANCE_TRAVAIL_CLIENT_SECRET to enable it."
+        return ""
+    }
+
+    $tokenUrl = $env:FRANCE_TRAVAIL_TOKEN_URL
+    if ([string]::IsNullOrWhiteSpace($tokenUrl)) {
+        $tokenUrl = "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire"
+    }
+
+    try {
+        $body = @{
+            grant_type    = "client_credentials"
+            client_id     = $FranceTravailClientId
+            client_secret = $FranceTravailClientSecret
+            scope         = $FranceTravailScope
+        }
+        $response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -TimeoutSec 45
+        return [string]$response.access_token
+    }
+    catch {
+        Write-Warning ("France Travail token request failed: {0}" -f $_.Exception.Message)
+        return ""
+    }
+}
+
+function Get-FranceTravailJobUrl {
+    param([AllowNull()]$Job)
+
+    $urlPostulation = Get-ObjectPropertyValue -Object $Job -Names @("urlPostulation")
+    if (-not [string]::IsNullOrWhiteSpace($urlPostulation)) {
+        return ConvertTo-CleanUrl ([string]$urlPostulation)
+    }
+
+    $origin = Get-ObjectPropertyValue -Object $Job -Names @("origineOffre")
+    $originUrl = Get-ObjectPropertyValue -Object $origin -Names @("urlOrigine")
+    if (-not [string]::IsNullOrWhiteSpace($originUrl)) {
+        return ConvertTo-CleanUrl ([string]$originUrl)
+    }
+
+    $jobId = Get-ObjectPropertyValue -Object $Job -Names @("id")
+    if (-not [string]::IsNullOrWhiteSpace($jobId)) {
+        return "https://candidat.francetravail.fr/offres/recherche/detail/{0}" -f ([Uri]::EscapeDataString([string]$jobId))
+    }
+
+    return ""
+}
+
+function Get-FranceTravailCompanyName {
+    param([AllowNull()]$Job)
+
+    $company = Get-ObjectPropertyValue -Object $Job -Names @("entreprise")
+    $companyName = Get-ObjectPropertyValue -Object $company -Names @("nom", "name")
+    if (-not [string]::IsNullOrWhiteSpace($companyName)) {
+        return [string]$companyName
+    }
+
+    $origin = Get-ObjectPropertyValue -Object $Job -Names @("origineOffre")
+    $originName = Get-ObjectPropertyValue -Object $origin -Names @("origine", "nom")
+    if (-not [string]::IsNullOrWhiteSpace($originName) -and -not (Test-IsGenericJobBoardName $originName)) {
+        return [string]$originName
+    }
+
+    return ""
+}
+
+function Get-FranceTravailLocation {
+    param([AllowNull()]$Job)
+
+    $workLocation = Get-ObjectPropertyValue -Object $Job -Names @("lieuTravail")
+    $location = Get-ObjectPropertyValue -Object $workLocation -Names @("libelle", "commune", "codePostal")
+    if (-not [string]::IsNullOrWhiteSpace($location)) {
+        return [string]$location
+    }
+
+    return ConvertTo-LocationText $workLocation
+}
+
+function Get-FranceTravailContractType {
+    param([AllowNull()]$Job)
+
+    $contractLabel = Get-ObjectPropertyValue -Object $Job -Names @("typeContratLibelle", "contratLibelle")
+    $contractCode = Get-ObjectPropertyValue -Object $Job -Names @("typeContrat", "contrat")
+    $contractText = Join-CleanTextParts @($contractLabel, $contractCode)
+    $contractType = Get-ContractTypeFromText -Text $contractText
+    if (-not [string]::IsNullOrWhiteSpace($contractType)) {
+        return $contractType
+    }
+
+    return [string]$contractLabel
+}
+
+function Get-FranceTravailPublishedAt {
+    param([AllowNull()]$Job)
+
+    foreach ($name in @("dateCreation", "dateActualisation")) {
+        $value = Get-ObjectPropertyValue -Object $Job -Names @($name)
+        $date = ConvertTo-DateTimeOffsetOrNull $value
+        if ($null -ne $date) {
+            return $date
+        }
+    }
+
+    return $null
+}
+
+function Get-FranceTravailSourceText {
+    param([AllowNull()]$Job)
+
+    return Join-CleanTextParts @(
+        (Get-ObjectPropertyValue -Object $Job -Names @("intitule", "title")),
+        (Get-ObjectPropertyValue -Object $Job -Names @("description")),
+        (Get-ObjectPropertyValue -Object $Job -Names @("profil")),
+        (Get-ObjectPropertyValue -Object $Job -Names @("competences")),
+        (Get-ObjectPropertyValue -Object $Job -Names @("qualitesProfessionnelles"))
+    )
+}
+
+function Get-AdzunaContractType {
+    param([AllowNull()]$Job)
+
+    $contractType = ConvertTo-MatchText (Get-ObjectPropertyValue -Object $Job -Names @("contract_type"))
+    $contractTime = ConvertTo-MatchText (Get-ObjectPropertyValue -Object $Job -Names @("contract_time"))
+
+    if ($contractType -match "permanent") {
+        return "Permanent"
+    }
+    if ($contractType -match "contract|freelance") {
+        return "Freelance"
+    }
+    if ($contractTime -match "full\s*time|full_time") {
+        return "Full-time"
+    }
+    if ($contractTime -match "part\s*time|part_time") {
+        return "Part-time"
+    }
+
+    return ""
+}
+
+function Get-AdzunaLocation {
+    param([AllowNull()]$Job)
+
+    $location = Get-ObjectPropertyValue -Object $Job -Names @("location")
+    $displayName = Get-ObjectPropertyValue -Object $location -Names @("display_name")
+    if (-not [string]::IsNullOrWhiteSpace($displayName)) {
+        return [string]$displayName
+    }
+
+    $area = Get-ObjectPropertyValue -Object $location -Names @("area")
+    return ConvertTo-LocationText $area
+}
+
+function Get-AdzunaCompanyName {
+    param([AllowNull()]$Job)
+
+    $company = Get-ObjectPropertyValue -Object $Job -Names @("company")
+    $companyName = Get-ObjectPropertyValue -Object $company -Names @("display_name", "name")
+    if (-not [string]::IsNullOrWhiteSpace($companyName)) {
+        return [string]$companyName
+    }
+
+    return ""
+}
+
 function Get-LinkedInContractType {
     param(
         [AllowNull()][string]$Title,
@@ -503,8 +1087,25 @@ function Split-NormalizedTokens {
     return @($clean -split "\s+" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function Test-IsGenericJobBoardName {
+    param([AllowNull()][string]$Name)
+
+    $text = ConvertTo-MatchText $Name
+    $text = $text -replace "[^a-z0-9]+", " "
+    $text = ([regex]::Replace($text, "\s+", " ")).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $false
+    }
+
+    return $text -match "\b(france travail|pole emploi|poles emploi|adzuna|linkedin|indeed|hellowork|hello work|meteojob|jobijoba|monster|apec|jobgether|talent com|confidential|confidentiel|licorne|recrutement)\b"
+}
+
 function Get-DedupeCompanyKey {
     param([AllowNull()][string]$CompanyName)
+
+    if (Test-IsGenericJobBoardName $CompanyName) {
+        return ""
+    }
 
     $tokens = @(Split-NormalizedTokens $CompanyName)
     if ($tokens.Count -eq 0) {
@@ -517,14 +1118,10 @@ function Get-DedupeCompanyKey {
         "group", "groupe", "company", "companies", "media", "digital",
         "consulting", "consultants", "technology", "technologies", "solutions"
     )
-    $strongTokens = @($tokens | Where-Object { $_.Length -gt 1 -and $noise -notcontains $_ })
+    $weakCompanyTokens = @("confidential", "confidentiel", "jobgether", "licorne", "recrutement", "talent", "emploi", "travail", "adzuna", "linkedin", "indeed", "hellowork", "meteojob", "jobijoba", "monster", "apec")
+    $strongTokens = @($tokens | Where-Object { $_.Length -gt 1 -and $noise -notcontains $_ -and $weakCompanyTokens -notcontains $_ })
     if ($strongTokens.Count -eq 0) {
-        $strongTokens = $tokens
-    }
-
-    $weakCompanyNames = @("confidential", "jobgether", "licorne", "recrutement", "talent")
-    if ($weakCompanyNames -contains $strongTokens[0] -and $strongTokens.Count -gt 1) {
-        return ($strongTokens | Select-Object -First 2) -join " "
+        return ""
     }
 
     if ($strongTokens.Count -eq 1) {
@@ -532,6 +1129,24 @@ function Get-DedupeCompanyKey {
     }
 
     return ($strongTokens | Select-Object -First 2) -join " "
+}
+
+function ConvertTo-DedupeTitleToken {
+    param([AllowNull()][string]$Token)
+
+    if ([string]::IsNullOrWhiteSpace($Token)) {
+        return ""
+    }
+
+    switch -Regex ($Token) {
+        "^(analyste|analystes)$" { return "analyst" }
+        "^(consultante|consultants|consultantes)$" { return "consultant" }
+        "^(digitale|digitaux|digitales)$" { return "digital" }
+        "^(analytics|analytic|analytique|analytiques)$" { return "analytics" }
+        "^(chargee|charges|chargees)$" { return "charge" }
+        "^(performances)$" { return "performance" }
+        default { return $Token }
+    }
 }
 
 function Get-DedupeLocationKey {
@@ -587,7 +1202,13 @@ function Get-DedupeTitleKey {
         "ile", "de", "a", "au", "aux", "en", "la", "le", "les", "du", "des", "et", "emea",
         "media", "sa", "sas", "sasu", "groupe", "group"
     )
-    $tokens = @($text -split "\s+" | Where-Object { $_.Length -gt 1 -and $noise -notcontains $_ })
+    $tokens = @(
+        $text -split "\s+" |
+            Where-Object { $_.Length -gt 1 -and $noise -notcontains $_ } |
+            ForEach-Object { ConvertTo-DedupeTitleToken $_ } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique
+    )
     if ($tokens.Count -eq 0) {
         return ""
     }
@@ -618,7 +1239,13 @@ function Test-UseLocationInDedupeKey {
         return $false
     }
 
-    if ($TitleKey -match "\b(web analyst|digital analyst|tracking|tagging|analytics|web analytics|digital analytics|gtm|cro|data analyst)\b") {
+    $hasCoreAnalyticsTitle =
+        (($TitleKey -match "\bweb\b") -and ($TitleKey -match "\banalyst\b|\banalytics\b")) -or
+        (($TitleKey -match "\bdigital\b") -and ($TitleKey -match "\banalyst\b|\banalytics\b")) -or
+        (($TitleKey -match "\bdata\b") -and ($TitleKey -match "\banalyst\b") -and ($TitleKey -match "\bweb\b|\bdigital\b|\banalytics\b")) -or
+        ($TitleKey -match "\b(tracking|tagging|taggage|gtm|cro)\b")
+
+    if ($hasCoreAnalyticsTitle) {
         return $false
     }
 
@@ -729,7 +1356,44 @@ function Test-IsExcludedContractType {
         return $false
     }
 
-    return $contractText -match "\bcdd\b|apprenticeship|apprentissage|alternance|internship|\bstage\b|stagiaire|temporary|fixed\s+term"
+    return $contractText -match "\bcdd\b|apprenticeship|apprentissage|alternance|internship|\bstage\b|stagiaire|temporary|fixed\s+term|freelance|contractor|independant|independent"
+}
+
+function Get-EarlyContractType {
+    param(
+        [AllowNull()][string]$ContractType,
+        [AllowNull()][string]$Text = ""
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ContractType)) {
+        return Get-ContractTypeFromText -Text $Text -RawContractType $ContractType
+    }
+
+    return Get-ContractTypeFromText -Text $Text
+}
+
+function Test-ShouldSkipEarlyByContract {
+    param(
+        [AllowNull()][string]$ContractType,
+        [AllowNull()][string]$Text = "",
+        [switch]$Reliable
+    )
+
+    $effectiveContract = Get-EarlyContractType -ContractType $ContractType -Text $Text
+    if ([string]::IsNullOrWhiteSpace($effectiveContract)) {
+        return $false
+    }
+
+    if ($Reliable) {
+        return Test-IsExcludedContractType $effectiveContract
+    }
+
+    $matchText = ConvertTo-MatchText (Join-CleanTextParts @($ContractType, $Text))
+    if ($matchText -match "\bcdd\b|apprentissage|alternance|apprenticeship|internship|\bstage\b|stagiaire|freelance|contractor|independant|independent") {
+        return Test-IsExcludedContractType $effectiveContract
+    }
+
+    return $false
 }
 
 function Get-PreferenceObjectValue {
@@ -780,7 +1444,6 @@ function New-DefaultJobCrawlerPreferences {
         }
         contract_fit_weights = [PSCustomObject]@{
             preferred = 5
-            freelance = -4
             excluded = -100
             unknown = 0
         }
@@ -998,9 +1661,6 @@ function Get-ContractFitCategory {
     if ($contractText -match "\bcdi\b|permanent|full\s*time|temps\s+plein") {
         return "preferred"
     }
-    if ($contractText -match "freelance|contractor|independant") {
-        return "freelance"
-    }
 
     return "unknown"
 }
@@ -1083,12 +1743,32 @@ function New-JobResult {
         [string]$MatchedKeywords,
         [string]$Url,
         [string]$Platform,
-        [DateTimeOffset]$PublishedAt,
+        [AllowNull()]$PublishedAt,
         [AllowNull()][string]$SourceText = ""
     )
 
-    if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($Url)) {
+    if ([string]::IsNullOrWhiteSpace($Title) -or [string]::IsNullOrWhiteSpace($Url) -or $null -eq $PublishedAt) {
         return $null
+    }
+
+    $publishedDateValue = $null
+    if ($PublishedAt -is [DateTimeOffset]) {
+        $publishedDateValue = $PublishedAt
+    }
+    elseif ($PublishedAt -is [DateTime]) {
+        $publishedDateValue = [DateTimeOffset]$PublishedAt
+    }
+    else {
+        $publishedDateValue = ConvertTo-DateTimeOffsetOrNull ([string]$PublishedAt)
+    }
+    if ($null -eq $publishedDateValue) {
+        return $null
+    }
+
+    $textContractType = Get-ContractTypeFromText -Text (Join-CleanTextParts @($Title, $SourceText))
+    $effectiveContractType = $ContractType
+    if ((Test-IsExcludedContractType $textContractType) -or [string]::IsNullOrWhiteSpace($effectiveContractType)) {
+        $effectiveContractType = $textContractType
     }
 
     $key = "{0}|{1}" -f $Platform, $Url.ToLowerInvariant()
@@ -1098,7 +1778,7 @@ function New-JobResult {
 
     $identityKey = Get-JobIdentityKeyFromValues -Title $Title -CompanyName $CompanyName -JobLocation $JobLocation -Url $Url
     $jobId = Get-StableJobId $identityKey
-    $fit = Get-JobFitDimensions -RoleScore $MatchScore -Title $Title -CompanyName $CompanyName -JobLocation $JobLocation -ContractType $ContractType -Text $SourceText
+    $fit = Get-JobFitDimensions -RoleScore $MatchScore -Title $Title -CompanyName $CompanyName -JobLocation $JobLocation -ContractType $effectiveContractType -Text $SourceText
     $adjustedScore = [int]$fit.FinalScore
     $adjustedKeywords = $MatchedKeywords.Trim()
     $fitKeywordNotes = New-Object System.Collections.Generic.List[string]
@@ -1125,7 +1805,7 @@ function New-JobResult {
         company_name   = $CompanyName.Trim()
         employer_type  = [string]$fit.EmployerType
         location       = $JobLocation.Trim()
-        contract_type  = $ContractType.Trim()
+        contract_type  = $effectiveContractType.Trim()
         match_score    = $adjustedScore
         match_level    = ([string]$fit.MatchLevel).Trim()
         matched_keywords = $adjustedKeywords
@@ -1141,7 +1821,7 @@ function New-JobResult {
         platform       = $Platform
         source_count   = "1"
         alternate_urls = ""
-        published_date = $PublishedAt.ToString("yyyy-MM-dd")
+        published_date = $publishedDateValue.ToString("yyyy-MM-dd")
     }
 }
 
@@ -1154,7 +1834,7 @@ function New-OrderedJobRecord {
     $ordered = [ordered]@{}
     foreach ($column in $MasterColumns) {
         if ($Values.ContainsKey($column) -and $null -ne $Values[$column]) {
-            $ordered[$column] = [string]$Values[$column]
+            $ordered[$column] = Repair-DisplayText ([string]$Values[$column])
         }
         else {
             $ordered[$column] = ""
@@ -1221,7 +1901,7 @@ function Import-TrackerRowsFromXlsx {
             $hasValue = $false
             for ($column = 1; $column -le $columnCount; $column++) {
                 $name = $headers[$column - 1]
-                $value = [string]$sheet.Cells.Item($row, $column).Text
+                $value = Repair-DisplayText ([string]$sheet.Cells.Item($row, $column).Text)
                 if (-not [string]::IsNullOrWhiteSpace($value)) {
                     $hasValue = $true
                 }
@@ -1316,7 +1996,7 @@ function Export-TrackerWorkbook {
             foreach ($columnName in $MasterColumns) {
                 $excelColumn = [int]$columnIndex[$columnName]
                 $cell = $jobsSheet.Cells.Item($excelRow, $excelColumn)
-                $value = Get-RowValue -Row $row -Name $columnName
+                $value = Repair-DisplayText (Get-RowValue -Row $row -Name $columnName)
 
                 if ($columnName -eq "job_url") {
                     $url = Get-RowValue -Row $row -Name "job_url_raw"
@@ -1479,20 +2159,31 @@ function Export-TrackerWorkbook {
             "seniority {0}" -f @($Rows | Where-Object { (Get-IntegerRowValue -Row $_ -Name "seniority_fit") -lt 0 }).Count
             "contract {0}" -f @($Rows | Where-Object { (Get-IntegerRowValue -Row $_ -Name "contract_fit") -lt 0 }).Count
         ) -join " | "
+        $sourceSummary = @(
+            "France Travail {0}" -f @($Rows | Where-Object { (Get-RowValue -Row $_ -Name "platform") -match "France Travail" }).Count
+            "Adzuna {0}" -f @($Rows | Where-Object { (Get-RowValue -Row $_ -Name "platform") -match "Adzuna" }).Count
+            "APEC {0}" -f @($Rows | Where-Object { (Get-RowValue -Row $_ -Name "platform") -match "APEC" }).Count
+            "HelloWork {0}" -f @($Rows | Where-Object { (Get-RowValue -Row $_ -Name "platform") -match "HelloWork" }).Count
+            "WTTJ {0}" -f @($Rows | Where-Object { (Get-RowValue -Row $_ -Name "platform") -match "Welcome to the Jungle" }).Count
+            "LinkedIn {0}" -f @($Rows | Where-Object { (Get-RowValue -Row $_ -Name "platform") -match "LinkedIn" }).Count
+        ) -join " | "
         $summaryPairs = @(
             @("Generated", $RunStamp),
+            @("Crawl mode", $CrawlMode),
             @("Retention rule", "Keep non-application jobs only when Published is on or after $CutoffDate."),
             @("Rows in workbook", [string](@($Rows).Count)),
             @("Seen in this crawl", [string]$currentVisibleCount),
             @("New this run", [string]$newVisibleCount),
             @("Application rows kept", [string]$applicationVisibleCount),
             @("Match levels", ("High {0} | Medium {1} | Review {2}" -f $highVisibleCount, $mediumVisibleCount, $reviewVisibleCount)),
+            @("Sources", $sourceSummary),
             @("Employer types", $employerTypeSummary),
             @("Fit demotions", $fitDemotionSummary),
             @("Total matched before contract filter", (Get-SummaryValue -Summary $Summary -Name "TotalMatched")),
-            @("Excluded CDD/apprenticeship/internship", (Get-SummaryValue -Summary $Summary -Name "ExcludedContractCount")),
+            @("Excluded CDD/apprenticeship/internship/freelance", (Get-SummaryValue -Summary $Summary -Name "ExcludedContractCount")),
             @("Duplicates merged this run", (Get-SummaryValue -Summary $Summary -Name "DuplicateCount")),
             @("Rows removed by retention", (Get-SummaryValue -Summary $Summary -Name "RemovedCount")),
+            @("Source diagnostics", (Get-SummaryValue -Summary $Summary -Name "SourceDiagnostics")),
             @("Backup", (Get-SummaryValue -Summary $Summary -Name "BackupPath")),
             @("Tracker", $fullPath),
             @("Manual fields", "Status, Applied date, Apply notes with ignore_reason templates"),
@@ -1592,11 +2283,24 @@ function Get-SourcePreference {
     param([AllowNull()]$Row)
 
     $platform = ConvertTo-MatchText (Get-RowValue -Row $Row -Name "platform")
+    $url = ConvertTo-MatchText (Get-RowValue -Row $Row -Name "job_url_raw")
     if ($platform -match "welcome|jungle|wttj") {
-        return 30
+        return 50
+    }
+    if ($platform -match "\bapec\b" -or $url -match "apec\.fr") {
+        return 45
+    }
+    if ($platform -match "france\s+travail" -or $url -match "francetravail|pole-emploi") {
+        return 40
+    }
+    if ($platform -match "hellowork" -or $url -match "hellowork") {
+        return 35
     }
     if ($platform -match "linkedin") {
-        return 20
+        return 30
+    }
+    if ($platform -match "adzuna") {
+        return 15
     }
 
     return 10
@@ -1698,6 +2402,24 @@ function Get-RowUrlValues {
     }
 
     return Get-UniqueTextValues -Values $values
+}
+
+function Get-RowPlatformValues {
+    param([object[]]$Rows)
+
+    return Get-UniqueTextValues -Values @($Rows | ForEach-Object { Get-RowValue -Row $_ -Name "platform" })
+}
+
+function Get-SourceCountFromRows {
+    param([object[]]$Rows)
+
+    $platforms = @(Get-RowPlatformValues $Rows)
+    if ($platforms.Count -gt 0) {
+        return [Math]::Max(1, $platforms.Count)
+    }
+
+    $urls = @(Get-RowUrlValues $Rows)
+    return [Math]::Max(1, $urls.Count)
 }
 
 function Get-LatestDateText {
@@ -1843,7 +2565,7 @@ function Merge-SimilarJobRows {
     $values["job_url_raw"] = $primaryUrl
     $values["job_url"] = ConvertTo-ExcelHyperlinkFormula -Url $primaryUrl -Label "Open"
     $values["alternate_urls"] = ($alternateUrls -join "; ")
-    $values["source_count"] = [string]([Math]::Max(1, $urls.Count))
+    $values["source_count"] = [string](Get-SourceCountFromRows $rowList)
     $values["platform"] = Join-UniqueTextValues -Values @($rowList | ForEach-Object { Get-RowValue -Row $_ -Name "platform" })
     $values["matched_keywords"] = Join-UniqueTextValues -Values @($rowList | ForEach-Object { Get-RowValue -Row $_ -Name "matched_keywords" }) -SplitPattern "\s*;\s*|\s*,\s*"
     $employerTypes = @(Get-UniqueTextValues -Values @($rowList | ForEach-Object { Get-RowValue -Row $_ -Name "employer_type" }))
@@ -1893,30 +2615,7 @@ function Group-RowsByDedupeKey {
 function Backup-TrackerFile {
     param([string]$Path)
 
-    if (-not (Test-Path $Path)) {
-        return ""
-    }
-
-    $backupDirectory = Join-Path (Split-Path -Parent $Path) "backups"
-    if (-not (Test-Path $backupDirectory)) {
-        New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
-    }
-
-    $baseName = [IO.Path]::GetFileNameWithoutExtension($Path)
-    $extension = [IO.Path]::GetExtension($Path)
-    $backupPath = Join-Path $backupDirectory ("{0}_{1}{2}" -f $baseName, $RunStamp, $extension)
-    Copy-Item -LiteralPath $Path -Destination $backupPath -Force
-
-    if ($MaxBackups -gt 0) {
-        $oldBackups = @(Get-ChildItem -LiteralPath $backupDirectory -File -Filter ("{0}_*{1}" -f $baseName, $extension) | Sort-Object LastWriteTime -Descending)
-        if ($oldBackups.Count -gt $MaxBackups) {
-            $oldBackups | Select-Object -Skip $MaxBackups | ForEach-Object {
-                Remove-Item -LiteralPath $_.FullName -Force
-            }
-        }
-    }
-
-    return $backupPath
+    return Backup-JobTrackerFile -Path $Path -MaxBackups $MaxBackups
 }
 
 function Import-TrackerRows {
@@ -1995,7 +2694,11 @@ function ConvertTo-TrackerRecord {
     $matchLevel = Get-PreferredValue -Primary (Get-RowValue -Row $CurrentRow -Name "match_level") -Fallback (Get-RowValue -Row $ExistingRow -Name "match_level")
     $duplicateValue = Get-PreferredValue -Primary $DuplicateReason -Fallback (Get-RowValue -Row $ExistingRow -Name "duplicate_reason")
     $publishedDate = Get-PreferredValue -Primary (Get-RowValue -Row $CurrentRow -Name "published_date") -Fallback (Get-RowValue -Row $ExistingRow -Name "published_date")
-    $primaryUrl = Get-PreferredValue -Primary (Get-RowValue -Row $CurrentRow -Name "job_url_raw") -Fallback (Get-RowValue -Row $ExistingRow -Name "job_url_raw")
+    $preferredUrlRow = Select-PreferredUrlRow @($CurrentRow, $ExistingRow)
+    $primaryUrl = Get-RowValue -Row $preferredUrlRow -Name "job_url_raw"
+    if ([string]::IsNullOrWhiteSpace($primaryUrl)) {
+        $primaryUrl = Get-PreferredValue -Primary (Get-RowValue -Row $CurrentRow -Name "job_url_raw") -Fallback (Get-RowValue -Row $ExistingRow -Name "job_url_raw")
+    }
     $allUrls = @(Get-RowUrlValues @($CurrentRow, $ExistingRow))
     $alternateUrls = @($allUrls | Where-Object { $_ -ne $primaryUrl })
     $jobTitleValue = Get-PreferredValue -Primary (Get-RowValue -Row $CurrentRow -Name "job_title") -Fallback (Get-RowValue -Row $ExistingRow -Name "job_title")
@@ -2072,7 +2775,7 @@ function ConvertTo-TrackerRecord {
         job_url_raw           = $primaryUrl
         alternate_urls        = ($alternateUrls -join "; ")
         platform              = Join-UniqueTextValues -Values @((Get-RowValue -Row $CurrentRow -Name "platform"), (Get-RowValue -Row $ExistingRow -Name "platform"))
-        source_count          = [string]([Math]::Max(1, $allUrls.Count))
+        source_count          = [string](Get-SourceCountFromRows @($CurrentRow, $ExistingRow))
         published_date        = $publishedDate
         days_since_published  = Get-DaysSince $publishedDate
         notes                 = Get-RowValue -Row $ExistingRow -Name "notes"
@@ -2129,7 +2832,182 @@ function Get-FeedbackSeniorityBucket {
 function Test-FeedbackTextHasWebAnalyticsSignal {
     param([string]$Text)
 
-    return $Text -match "web\s+analytics|digital\s+analytics|web\s*analyst|digital\s*analyst|tracking|tagging|taggage|webtracking|google\s+tag\s+manager|\bgtm\b|google\s+analytics|\bga4\b|piano|contentsquare|content\s+square|data\s*layer|datalayer|tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)|consent\s+mode|matomo|adobe\s+analytics"
+    return $Text -match "web\s+analytics|digital\s+analytics|web\s*analyst|digital\s*analyst|tracking|tagging|taggage|webtracking|google\s+tag\s+manager|\bgtm\b|google\s+analytics|\bga4\b|piano|contentsquare|content\s+square|tag\s+commander|commanders?\s+act|\btealium\b|data\s*layer|datalayer|tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)|server\s*[- ]?\s*side|consent\s+mode|\brgpd\b|\bgdpr\b|matomo|adobe\s+analytics"
+}
+
+function Get-FeedbackSignalDefinitions {
+    return @(
+        [PSCustomObject]@{ Key = "google_tag_manager"; Label = "feedback positive: Google Tag Manager"; Pattern = "google\s+tag\s+manager|\bgtm\b" },
+        [PSCustomObject]@{ Key = "google_analytics"; Label = "feedback positive: Google Analytics/GA4"; Pattern = "google\s+analytics|\bga4\b" },
+        [PSCustomObject]@{ Key = "piano"; Label = "feedback positive: Piano"; Pattern = "piano" },
+        [PSCustomObject]@{ Key = "contentsquare"; Label = "feedback positive: ContentSquare"; Pattern = "contentsquare|content\s+square" },
+        [PSCustomObject]@{ Key = "tag_commander"; Label = "feedback positive: Tag Commander/Commanders Act"; Pattern = "tag\s+commander|commanders?\s+act" },
+        [PSCustomObject]@{ Key = "tealium"; Label = "feedback positive: Tealium"; Pattern = "\btealium\b|tealium\s+iq" },
+        [PSCustomObject]@{ Key = "server_side"; Label = "feedback positive: server-side tracking"; Pattern = "server\s*[- ]?\s*side|server\s+container|\bsgtm\b" },
+        [PSCustomObject]@{ Key = "rgpd"; Label = "feedback positive: RGPD/GDPR"; Pattern = "\brgpd\b|\bgdpr\b|protection\s+des\s+donn[eé]es|privacy|conformit[eé]" },
+        [PSCustomObject]@{ Key = "datalayer"; Label = "feedback positive: dataLayer"; Pattern = "data\s*layer|datalayer" },
+        [PSCustomObject]@{ Key = "tagging_plan"; Label = "feedback positive: tagging plan"; Pattern = "tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)" },
+        [PSCustomObject]@{ Key = "consent"; Label = "feedback positive: consent tracking"; Pattern = "consent\s+mode|cookie\s+consent|\bcmp\b" },
+        [PSCustomObject]@{ Key = "cro"; Label = "feedback positive: CRO"; Pattern = "\bcro\b|conversion\s+rate|conversion\s+optimization|optimisation\s+conversion" }
+    )
+}
+
+function Get-HashtableIntValue {
+    param(
+        [AllowNull()]$Table,
+        [string]$Key
+    )
+
+    if ($null -eq $Table -or [string]::IsNullOrWhiteSpace($Key)) {
+        return 0
+    }
+
+    if ($Table -is [Collections.IDictionary] -and $Table.Contains($Key)) {
+        return [int]$Table[$Key]
+    }
+
+    $property = $Table.PSObject.Properties[$Key]
+    if ($null -ne $property -and $null -ne $property.Value) {
+        return [int]$property.Value
+    }
+
+    return 0
+}
+
+function Add-FeedbackCount {
+    param(
+        [hashtable]$Table,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Key)) {
+        return
+    }
+
+    if (-not $Table.ContainsKey($Key)) {
+        $Table[$Key] = 0
+    }
+    $Table[$Key] = [int]$Table[$Key] + 1
+}
+
+function New-FeedbackLearningProfile {
+    param([object[]]$Rows)
+
+    $positiveCounts = @{}
+    $ignoreReasonCounts = @{}
+    $positiveRows = 0
+    $ignoredRows = 0
+    $signals = @(Get-FeedbackSignalDefinitions)
+
+    foreach ($row in @($Rows)) {
+        $status = ConvertTo-MatchText (Get-RowValue -Row $row -Name "status")
+        if ([string]::IsNullOrWhiteSpace($status)) {
+            continue
+        }
+
+        $rowText = Get-FeedbackProfileText $row
+        if ($status -match "^(applied|interview|offer|interesting)$") {
+            $positiveRows++
+            foreach ($signal in $signals) {
+                if ($rowText -match [string]$signal.Pattern) {
+                    Add-FeedbackCount -Table $positiveCounts -Key ([string]$signal.Key)
+                }
+            }
+        }
+        elseif ($status -eq "ignored") {
+            $ignoredRows++
+            $ignoreReason = Get-IgnoreReasonFromNotes (Get-RowValue -Row $row -Name "notes")
+            if (-not [string]::IsNullOrWhiteSpace($ignoreReason)) {
+                Add-FeedbackCount -Table $ignoreReasonCounts -Key (ConvertTo-IgnoreReasonKey $ignoreReason)
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        PositiveSignalCounts = $positiveCounts
+        IgnoreReasonCounts   = $ignoreReasonCounts
+        PositiveRows         = $positiveRows
+        IgnoredRows          = $ignoredRows
+    }
+}
+
+function Get-FeedbackLearningAdjustment {
+    param(
+        [string]$FullText,
+        [bool]$HasCoreTitleSignal,
+        [bool]$HasWebAnalyticsToolSignal,
+        [bool]$HasDigitalAnalyticsContext
+    )
+
+    $profile = $script:FeedbackLearningProfile
+    if ($null -eq $profile) {
+        return [PSCustomObject]@{ Adjustment = 0; Reasons = @() }
+    }
+
+    $adjustment = 0
+    $reasons = New-Object System.Collections.Generic.List[string]
+    $positiveSignals = $profile.PositiveSignalCounts
+    foreach ($signal in @(Get-FeedbackSignalDefinitions)) {
+        $count = Get-HashtableIntValue -Table $positiveSignals -Key ([string]$signal.Key)
+        if ($count -le 0 -or $FullText -notmatch [string]$signal.Pattern) {
+            continue
+        }
+
+        $delta = [Math]::Min(8, 2 + (2 * $count))
+        $adjustment += $delta
+        $reasons.Add([string]$signal.Label) | Out-Null
+    }
+
+    if ($adjustment -gt 18) {
+        $adjustment = 18
+    }
+
+    $ignoreCounts = $profile.IgnoreReasonCounts
+    $negativeAdjustment = 0
+    $negativeRules = @(
+        [PSCustomObject]@{ Key = "too_seo_sea_marketing"; Pattern = "\bseo\b|\bsea\b|paid\s+social|paid\s+search|paid\s+media|performance\s+marketing|growth\s+marketing|acquisition|campaign|media\s+buyer"; Label = "feedback ignored: SEO/SEA/marketing"; Max = 14 },
+        [PSCustomObject]@{ Key = "too_data_analyst"; Pattern = "\bdata\s*analyst\b|analyste\s+de\s+donnees|\bpython\b|\bsql\b|notebook|data\s+warehouse|business\s+analyst"; Label = "feedback ignored: data analyst"; Max = 12 },
+        [PSCustomObject]@{ Key = "too_data_engineering"; Pattern = "data\s+engineer|analytics?\s+engineer|\bdbt\b|snowflake|airflow|\betl\b|\belt\b|data\s+warehouse|datawarehouse|data\s+platform|databricks|pyspark|spark|pipeline|backend|devops"; Label = "feedback ignored: data engineering"; Max = 16 },
+        [PSCustomObject]@{ Key = "too_bi_reporting"; Pattern = "\bbi\b|business\s+intelligence|power\s*bi|tableau|dashboard|reporting|looker|data\s+studio|tableau\s+de\s+bord"; Label = "feedback ignored: BI/reporting"; Max = 10 },
+        [PSCustomObject]@{ Key = "too_crm_emailing"; Pattern = "\bcrm\b|emailing|email\s+marketing|marketing\s+automation|salesforce|hubspot|braze|batch|campaign"; Label = "feedback ignored: CRM/emailing"; Max = 12 },
+        [PSCustomObject]@{ Key = "too_content_social"; Pattern = "content\s+marketing|social\s+media|community\s+manager|editorial|copywriting|seo\s+content"; Label = "feedback ignored: content/social"; Max = 12 },
+        [PSCustomObject]@{ Key = "too_product_analytics"; Pattern = "product\s+analyst|product\s+analytics|amplitude|mixpanel|heap"; Label = "feedback ignored: product analytics"; Max = 8 },
+        [PSCustomObject]@{ Key = "too_managerial"; Pattern = "\bhead\b|director|directeur|directrice|lead|manager|responsable|principal"; Label = "feedback ignored: managerial"; Max = 8 },
+        [PSCustomObject]@{ Key = "agency_consulting_esn"; Pattern = "consultant|consulting|cabinet|agence|agency|\besn\b|ssii"; Label = "feedback ignored: agency/consulting/ESN"; Max = 8 }
+    )
+
+    foreach ($rule in $negativeRules) {
+        $count = Get-HashtableIntValue -Table $ignoreCounts -Key ([string]$rule.Key)
+        if ($count -le 0 -or $FullText -notmatch [string]$rule.Pattern) {
+            continue
+        }
+
+        if ($rule.Key -match "too_data|too_bi|too_product" -and $HasWebAnalyticsToolSignal) {
+            continue
+        }
+        if ($rule.Key -eq "too_seo_sea_marketing" -and $HasDigitalAnalyticsContext) {
+            continue
+        }
+
+        $delta = [Math]::Min([int]$rule.Max, 4 + (3 * $count))
+        $negativeAdjustment -= $delta
+        $reasons.Add([string]$rule.Label) | Out-Null
+    }
+
+    $notAnalyticsCount = Get-HashtableIntValue -Table $ignoreCounts -Key "not_analytics_enough"
+    if ($notAnalyticsCount -gt 0 -and -not $HasCoreTitleSignal -and -not $HasWebAnalyticsToolSignal) {
+        $negativeAdjustment -= [Math]::Min(12, 4 + (3 * $notAnalyticsCount))
+        $reasons.Add("feedback ignored: not analytics enough") | Out-Null
+    }
+
+    if ($negativeAdjustment -lt -25) {
+        $negativeAdjustment = -25
+    }
+
+    return [PSCustomObject]@{
+        Adjustment = [int]($adjustment + $negativeAdjustment)
+        Reasons    = @($reasons.ToArray() | Select-Object -Unique)
+    }
 }
 
 function Get-IgnoredFeedbackPenalty {
@@ -2289,7 +3167,7 @@ function Get-FeedbackAdjustment {
         $existingKeywords = ConvertTo-MatchText (Get-RowValue -Row $existing -Name "matched_keywords")
         $sameCompany = -not [string]::IsNullOrWhiteSpace($companyText) -and $companyText -eq $existingCompany
         $sameTitle = -not [string]::IsNullOrWhiteSpace($titleText) -and $titleText -eq $existingTitle
-        $keywordOverlap = -not [string]::IsNullOrWhiteSpace($keywordText) -and -not [string]::IsNullOrWhiteSpace($existingKeywords) -and ($keywordText -match "google|gtm|ga4|piano|contentsquare|tracking|tagging|cro") -and ($existingKeywords -match "google|gtm|ga4|piano|contentsquare|tracking|tagging|cro")
+        $keywordOverlap = -not [string]::IsNullOrWhiteSpace($keywordText) -and -not [string]::IsNullOrWhiteSpace($existingKeywords) -and ($keywordText -match "google|gtm|ga4|piano|contentsquare|tag\s+commander|commanders?\s+act|tealium|server-side|server\s+side|rgpd|gdpr|tracking|tagging|cro") -and ($existingKeywords -match "google|gtm|ga4|piano|contentsquare|tag\s+commander|commanders?\s+act|tealium|server-side|server\s+side|rgpd|gdpr|tracking|tagging|cro")
 
         if ($status -match "^(applied|interview|offer|interesting)$" -and ($sameCompany -or $sameTitle -or $keywordOverlap)) {
             $adjustment += 10
@@ -2476,6 +3354,59 @@ function Invoke-TextRequest {
     return [string]$response.Content
 }
 
+function Invoke-CachedTextRequest {
+    param(
+        [string]$Url,
+        [string]$CacheScope,
+        [hashtable]$Headers = @{},
+        [int]$TimeoutSec = 30,
+        [AllowNull()]$Stats = $null
+    )
+
+    $cached = Get-CachedText -Scope $CacheScope -Key $Url
+    if ($null -ne $cached) {
+        Add-SourceMetric -Stats $Stats -Name "CacheHits"
+        return $cached
+    }
+
+    Add-SourceMetric -Stats $Stats -Name "DetailRequests"
+    $text = Invoke-TextRequest -Url $Url -Headers $Headers -TimeoutSec $TimeoutSec
+    Set-CachedText -Scope $CacheScope -Key $Url -Text $text
+    return $text
+}
+
+function Invoke-JsonPostRequest {
+    param(
+        [string]$Url,
+        [AllowNull()]$Body = $null,
+        [hashtable]$Headers = @{},
+        [int]$TimeoutSec = 30
+    )
+
+    $mergedHeaders = @{
+        "User-Agent"      = $BrowserUserAgent
+        "Accept"          = "application/json, text/plain, */*"
+        "Accept-Language" = "fr-FR,fr;q=0.9,en;q=0.8"
+        "Content-Type"    = "application/json"
+    }
+
+    foreach ($key in $Headers.Keys) {
+        $mergedHeaders[$key] = $Headers[$key]
+    }
+
+    $jsonBody = ""
+    if ($null -ne $Body) {
+        $jsonBody = $Body | ConvertTo-Json -Depth 12 -Compress
+    }
+
+    $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -Method Post -Headers $mergedHeaders -Body $jsonBody -TimeoutSec $TimeoutSec
+    if ([string]::IsNullOrWhiteSpace([string]$response.Content)) {
+        return $null
+    }
+
+    return ([string]$response.Content | ConvertFrom-Json)
+}
+
 function Invoke-CurlTextRequest {
     param([string]$Url)
 
@@ -2588,10 +3519,21 @@ function Get-ObjectPropertyValue {
         return $null
     }
 
-    $propertyNames = @($Object.PSObject.Properties.Name)
+    if ($Object -is [Collections.IDictionary]) {
+        foreach ($name in $Names) {
+            if ($Object.Contains($name)) {
+                return $Object[$name]
+            }
+        }
+
+        return $null
+    }
+
+    $properties = @($Object.PSObject.Properties)
     foreach ($name in $Names) {
-        if ($propertyNames -contains $name) {
-            return $Object.PSObject.Properties[$name].Value
+        $property = @($properties | Where-Object { $_.Name -eq $name } | Select-Object -First 1)
+        if ($property.Count -gt 0) {
+            return $property[0].Value
         }
     }
 
@@ -2891,6 +3833,688 @@ function Get-WelcomeKitJobDetails {
     }
 }
 
+function Get-FranceTravailJobs {
+    $accessToken = Get-FranceTravailAccessToken
+    if ([string]::IsNullOrWhiteSpace($accessToken)) {
+        return @()
+    }
+
+    Set-RunWindowTitle "Analytics Job Crawler - France Travail"
+    Write-RunStatus "Collecting France Travail jobs through the official API..."
+    $stats = Start-SourceStats "France Travail"
+    $results = New-Object System.Collections.Generic.List[object]
+    $headers = @{
+        "Authorization" = "Bearer $accessToken"
+        "Accept"        = "application/json"
+    }
+    $searchUrl = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
+    $pageSize = 150
+    $queryIndex = 0
+
+    foreach ($query in $ApiSearchQueries) {
+        $queryIndex++
+        Write-RunStatus ("France Travail query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        for ($page = 0; $page -lt $MaxFranceTravailPages; $page++) {
+            $rangeStart = $page * $pageSize
+            $rangeEnd = $rangeStart + $pageSize - 1
+            $params = @{
+                motsCles      = $query
+                publieeDepuis = [string][Math]::Abs($DaysBack)
+                range         = ("{0}-{1}" -f $rangeStart, $rangeEnd)
+                sort          = "1"
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($Location) -and $Location -notmatch "(?i)^france$") {
+                $params["lieu"] = $Location
+                $params["distance"] = "50"
+            }
+
+            $url = "{0}?{1}" -f $searchUrl, (ConvertTo-QueryString $params)
+            try {
+                Add-SourceMetric -Stats $stats -Name "SearchRequests"
+                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -TimeoutSec 45
+            }
+            catch {
+                Add-SourceMetric -Stats $stats -Name "Errors"
+                Write-Warning ("France Travail search failed for '{0}' page {1}: {2}" -f $query, ($page + 1), $_.Exception.Message)
+                break
+            }
+
+            $jobArray = @()
+            if ($null -ne $response -and @($response.PSObject.Properties.Name) -contains "resultats") {
+                $jobArray = @($response.resultats)
+            }
+            elseif ($null -ne $response) {
+                $jobArray = @($response)
+            }
+
+            if ($jobArray.Count -eq 0) {
+                break
+            }
+
+            foreach ($job in $jobArray) {
+                Add-SourceMetric -Stats $stats -Name "Candidates"
+                $publishedAt = Get-FranceTravailPublishedAt $job
+                if (-not (Test-IsRecent $publishedAt)) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedOld"
+                    continue
+                }
+
+                $title = [string](Get-ObjectPropertyValue -Object $job -Names @("intitule", "title"))
+                $sourceText = Get-FranceTravailSourceText $job
+                $contractType = Get-FranceTravailContractType $job
+                if (Test-ShouldSkipEarlyByContract -ContractType $contractType -Text (Join-CleanTextParts @($title, $sourceText)) -Reliable) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedContract"
+                    continue
+                }
+
+                $match = Get-JobMatch -Title $title -Text $sourceText
+                if (-not $match.IsMatch) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
+                    continue
+                }
+
+                $jobUrl = Get-FranceTravailJobUrl $job
+                $companyName = Get-FranceTravailCompanyName $job
+                $jobLocation = Get-FranceTravailLocation $job
+                $result = New-JobResult -Title $title -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $jobUrl -Platform "France Travail" -PublishedAt $publishedAt -SourceText $sourceText
+                if ($null -ne $result) {
+                    $results.Add($result) | Out-Null
+                    Add-SourceMetric -Stats $stats -Name "Matches"
+                }
+            }
+
+            Write-CountProgress -Activity ("France Travail query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current ($page + 1) -Total $MaxFranceTravailPages -Found $results.Count -Every 1
+            if ($jobArray.Count -lt $pageSize) {
+                break
+            }
+            Start-Sleep -Milliseconds 400
+        }
+    }
+
+    Write-RunStatus ("France Travail complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
+    return $results.ToArray()
+}
+
+function Get-AdzunaJobs {
+    if ([string]::IsNullOrWhiteSpace($AdzunaAppId) -or [string]::IsNullOrWhiteSpace($AdzunaAppKey)) {
+        Write-RunStatus "Adzuna credentials not set; skipping Adzuna source. Set ADZUNA_APP_ID and ADZUNA_APP_KEY to enable it."
+        return @()
+    }
+
+    Set-RunWindowTitle "Analytics Job Crawler - Adzuna"
+    Write-RunStatus "Collecting Adzuna jobs through the official API..."
+    $stats = Start-SourceStats "Adzuna"
+    $results = New-Object System.Collections.Generic.List[object]
+    $queryIndex = 0
+
+    foreach ($query in $ApiSearchQueries) {
+        $queryIndex++
+        Write-RunStatus ("Adzuna query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        for ($page = 1; $page -le $MaxAdzunaPages; $page++) {
+            $params = @{
+                app_id           = $AdzunaAppId
+                app_key          = $AdzunaAppKey
+                results_per_page = "25"
+                what             = $query
+                where            = $Location
+                max_days_old     = [string][Math]::Abs($DaysBack)
+                sort_by          = "date"
+                "content-type"   = "application/json"
+            }
+            $url = "https://api.adzuna.com/v1/api/jobs/fr/search/{0}?{1}" -f $page, (ConvertTo-QueryString $params)
+
+            try {
+                Add-SourceMetric -Stats $stats -Name "SearchRequests"
+                $response = Invoke-RestMethod -Uri $url -Method Get -Headers @{ "Accept" = "application/json" } -TimeoutSec 45
+            }
+            catch {
+                Add-SourceMetric -Stats $stats -Name "Errors"
+                Write-Warning ("Adzuna search failed for '{0}' page {1}: {2}" -f $query, $page, $_.Exception.Message)
+                break
+            }
+
+            $jobArray = @()
+            if ($null -ne $response -and @($response.PSObject.Properties.Name) -contains "results") {
+                $jobArray = @($response.results)
+            }
+
+            if ($jobArray.Count -eq 0) {
+                break
+            }
+
+            foreach ($job in $jobArray) {
+                Add-SourceMetric -Stats $stats -Name "Candidates"
+                $publishedAt = ConvertTo-DateTimeOffsetOrNull (Get-ObjectPropertyValue -Object $job -Names @("created"))
+                if (-not (Test-IsRecent $publishedAt)) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedOld"
+                    continue
+                }
+
+                $title = [string](Get-ObjectPropertyValue -Object $job -Names @("title"))
+                $description = [string](Get-ObjectPropertyValue -Object $job -Names @("description"))
+                $companyName = Get-AdzunaCompanyName $job
+                $jobLocation = Get-AdzunaLocation $job
+                $contractType = Get-AdzunaContractType $job
+                $jobUrl = ConvertTo-CleanUrl ([string](Get-ObjectPropertyValue -Object $job -Names @("redirect_url", "adref")))
+                $sourceText = Join-CleanTextParts @($title, $description, $contractType)
+                if (Test-ShouldSkipEarlyByContract -ContractType $contractType -Text $sourceText -Reliable) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedContract"
+                    continue
+                }
+
+                $match = Get-JobMatch -Title $title -Text $sourceText
+                if (-not $match.IsMatch) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
+                    continue
+                }
+
+                $result = New-JobResult -Title $title -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $jobUrl -Platform "Adzuna" -PublishedAt $publishedAt -SourceText $sourceText
+                if ($null -ne $result) {
+                    $results.Add($result) | Out-Null
+                    Add-SourceMetric -Stats $stats -Name "Matches"
+                }
+            }
+
+            Write-CountProgress -Activity ("Adzuna query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current $page -Total $MaxAdzunaPages -Found $results.Count -Every 1
+            Start-Sleep -Milliseconds $AdzunaDelayMilliseconds
+        }
+    }
+
+    Write-RunStatus ("Adzuna complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
+    return $results.ToArray()
+}
+
+function Get-ApecContractType {
+    param([AllowNull()]$Job)
+
+    $rawType = [string](Get-ObjectPropertyValue -Object $Job -Names @("typeContrat", "idNomTypeContrat"))
+    switch ($rawType) {
+        "101888" { return "CDI" }
+        "101887" { return "CDD" }
+        "597171" { return "Internship" }
+        "20053" { return "Apprenticeship" }
+        "101930" { return "Interim" }
+        "101889" { return "Interim" }
+    }
+
+    $contractText = Join-CleanTextParts @(
+        (Get-ObjectPropertyValue -Object $Job -Names @("intitule", "title"))
+        (Get-ObjectPropertyValue -Object $Job -Names @("texteOffre", "description"))
+        $rawType
+    )
+    return Get-ContractTypeFromText -Text $contractText
+}
+
+function Get-ApecJobUrl {
+    param([AllowNull()]$Job)
+
+    $numeroOffre = [string](Get-ObjectPropertyValue -Object $Job -Names @("numeroOffre", "NumeroOffre"))
+    if ([string]::IsNullOrWhiteSpace($numeroOffre)) {
+        $id = [string](Get-ObjectPropertyValue -Object $Job -Names @("id", "Id"))
+        if (-not [string]::IsNullOrWhiteSpace($id)) {
+            $numeroOffre = "{0}W" -f $id
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($numeroOffre)) {
+        return ""
+    }
+
+    return "https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/{0}" -f [Uri]::EscapeDataString($numeroOffre.Trim())
+}
+
+function New-ApecSearchBody {
+    param(
+        [string]$Query,
+        [int]$Page,
+        [int]$PageSize,
+        [string]$SortType = "SCORE"
+    )
+
+    return [ordered]@{
+        lieux                   = @()
+        fonctions               = @()
+        statutPoste             = @()
+        typesContrat            = @()
+        typesConvention         = @("143684", "143685", "143686", "143687", "143706")
+        niveauxExperience       = @()
+        idsEtablissement        = @()
+        secteursActivite        = @()
+        typesTeletravail        = @()
+        idNomZonesDeplacement   = @()
+        positionNumbersExcluded = @()
+        typeClient              = "CADRE"
+        sorts                   = @(@{ type = $SortType; direction = "DESCENDING" })
+        pagination              = @{ range = $PageSize; startIndex = ($Page * $PageSize) }
+        activeFiltre            = $true
+        pointGeolocDeReference  = @{ distance = 0 }
+        motsCles                = $Query
+    }
+}
+
+function Get-ApecJobs {
+    Set-RunWindowTitle "Analytics Job Crawler - APEC"
+    Write-RunStatus "Collecting APEC jobs from the public search endpoint..."
+    Write-RunStatus ("APEC plan: {0} query/queries, up to {1} page(s) each, no detail-page crawl." -f $ApiSearchQueries.Count, $MaxApecPages)
+
+    $stats = Start-SourceStats "APEC"
+    $results = New-Object System.Collections.Generic.List[object]
+    $headers = @{
+        "Accept"  = "application/json, text/plain, */*"
+        "Origin"  = "https://www.apec.fr"
+        "Referer" = "https://www.apec.fr/candidat/recherche-emploi.html/emploi"
+    }
+    $searchUrl = "https://www.apec.fr/cms/webservices/rechercheOffre"
+    $pageSize = 20
+    $queryIndex = 0
+
+    foreach ($query in $ApiSearchQueries) {
+        $queryIndex++
+        Write-RunStatus ("APEC query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+
+        for ($page = 0; $page -lt $MaxApecPages; $page++) {
+            $body = New-ApecSearchBody -Query $query -Page $page -PageSize $pageSize -SortType "SCORE"
+            try {
+                Add-SourceMetric -Stats $stats -Name "SearchRequests"
+                $response = Invoke-JsonPostRequest -Url $searchUrl -Body $body -Headers $headers -TimeoutSec 30
+            }
+            catch {
+                Add-SourceMetric -Stats $stats -Name "Errors"
+                Write-Warning ("APEC search failed for '{0}' page {1}: {2}" -f $query, ($page + 1), $_.Exception.Message)
+                break
+            }
+
+            $jobArray = @()
+            if ($null -ne $response -and @($response.PSObject.Properties.Name) -contains "resultats") {
+                $jobArray = @($response.resultats)
+            }
+            elseif ($null -ne $response -and @($response.PSObject.Properties.Name) -contains "results") {
+                $jobArray = @($response.results)
+            }
+
+            if ($jobArray.Count -eq 0) {
+                break
+            }
+
+            foreach ($job in $jobArray) {
+                Add-SourceMetric -Stats $stats -Name "Candidates"
+                $publishedAt = ConvertTo-DateTimeOffsetOrNull (Get-ObjectPropertyValue -Object $job -Names @("datePublication", "dateValidation", "published_at"))
+                if (-not (Test-IsRecent $publishedAt)) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedOld"
+                    continue
+                }
+
+                $title = Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $job -Names @("intitule", "title")))
+                $companyName = Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $job -Names @("nomCommercial", "company", "companyName")))
+                $jobLocation = Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $job -Names @("lieuTexte", "location")))
+                $contractType = Get-ApecContractType $job
+                $jobUrl = Get-ApecJobUrl $job
+                $sourceText = Join-CleanTextParts @(
+                    $title,
+                    $companyName,
+                    $jobLocation,
+                    $contractType,
+                    (Get-ObjectPropertyValue -Object $job -Names @("texteOffre", "description", "intituleSurbrillance"))
+                )
+                if (Test-ShouldSkipEarlyByContract -ContractType $contractType -Text $sourceText -Reliable) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedContract"
+                    continue
+                }
+
+                $match = Get-JobMatch -Title $title -Text $sourceText
+                if (-not $match.IsMatch) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
+                    continue
+                }
+
+                $result = New-JobResult -Title $title -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $jobUrl -Platform "APEC" -PublishedAt $publishedAt -SourceText $sourceText
+                if ($null -ne $result) {
+                    $results.Add($result) | Out-Null
+                    Add-SourceMetric -Stats $stats -Name "Matches"
+                }
+            }
+
+            Write-CountProgress -Activity ("APEC query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current ($page + 1) -Total $MaxApecPages -Found $results.Count -Every 1
+            if ($jobArray.Count -lt $pageSize) {
+                break
+            }
+            Start-Sleep -Milliseconds $ApecDelayMilliseconds
+        }
+    }
+
+    Write-RunStatus ("APEC complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
+    return $results.ToArray()
+}
+
+function Get-HelloWorkSearchUrl {
+    param(
+        [string]$Query,
+        [int]$Page
+    )
+
+    $params = @{
+        k = $Query
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Location) -and $Location -notmatch "(?i)^france$") {
+        $params["l"] = $Location
+    }
+    if ($Page -gt 1) {
+        $params["p"] = [string]$Page
+    }
+
+    return "https://www.hellowork.com/fr-fr/emploi/recherche.html?{0}" -f (ConvertTo-QueryString $params)
+}
+
+function Get-HelloWorkJsonObjects {
+    param([AllowNull()][string]$Html)
+
+    $objects = New-Object System.Collections.Generic.List[object]
+    if ([string]::IsNullOrWhiteSpace($Html)) {
+        return $objects.ToArray()
+    }
+
+    $scripts = [regex]::Matches($Html, '(?is)<script[^>]*type=["'']application/ld\+json["''][^>]*>(?<json>.*?)</script>')
+    foreach ($script in $scripts) {
+        $jsonText = [System.Net.WebUtility]::HtmlDecode($script.Groups["json"].Value).Trim()
+        if ([string]::IsNullOrWhiteSpace($jsonText)) {
+            continue
+        }
+
+        try {
+            $parsed = $jsonText | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            continue
+        }
+
+        if ($parsed -is [System.Collections.IEnumerable] -and $parsed -isnot [string] -and $parsed -isnot [pscustomobject]) {
+            foreach ($item in @($parsed)) {
+                if ($null -ne $item) {
+                    $objects.Add($item) | Out-Null
+                }
+            }
+        }
+        else {
+            $objects.Add($parsed) | Out-Null
+        }
+    }
+
+    return $objects.ToArray()
+}
+
+function Get-HelloWorkJobMetadata {
+    param([AllowNull()][string]$Html)
+
+    $title = ""
+    $company = ""
+    $location = ""
+    $contract = ""
+    $description = ""
+    $datePosted = $null
+    $employmentType = ""
+
+    foreach ($jsonObject in (Get-HelloWorkJsonObjects -Html $Html)) {
+        $objectType = [string](Get-ObjectPropertyValue -Object $jsonObject -Names @("@type", "type"))
+        if ($objectType -eq "JobPosting") {
+            $title = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("title", "name")))) $title
+            $description = Get-PreferredValue (ConvertFrom-HtmlText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("description")))) $description
+            $datePostedValue = Get-ObjectPropertyValue -Object $jsonObject -Names @("datePosted")
+            if ($null -eq $datePosted -and $null -ne $datePostedValue) {
+                $datePosted = ConvertTo-DateTimeOffsetOrNull $datePostedValue
+            }
+
+            $organization = Get-ObjectPropertyValue -Object $jsonObject -Names @("hiringOrganization")
+            if ($null -ne $organization) {
+                $company = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $organization -Names @("name")))) $company
+            }
+
+            $jobLocationValue = Get-ObjectPropertyValue -Object $jsonObject -Names @("jobLocation")
+            $location = Get-PreferredValue (ConvertTo-LocationText $jobLocationValue) $location
+            $employmentType = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("employmentType")))) $employmentType
+        }
+
+        $title = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("JobTitle")))) $title
+        $company = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("Company")))) $company
+        $location = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("Localisation")))) $location
+        $contract = Get-PreferredValue (Repair-DisplayText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("ContractType")))) $contract
+        $description = Get-PreferredValue (ConvertFrom-HtmlText ([string](Get-ObjectPropertyValue -Object $jsonObject -Names @("Description")))) $description
+    }
+
+    if ([string]::IsNullOrWhiteSpace($title)) {
+        $title = Get-TitleFromHtml $Html
+    }
+
+    [PSCustomObject]@{
+        Title          = $title
+        Company        = $company
+        Location       = $location
+        Contract       = $contract
+        Description    = $description
+        DatePosted     = $datePosted
+        EmploymentType = $employmentType
+    }
+}
+
+function Get-HelloWorkCardCandidates {
+    param(
+        [string]$Html,
+        [string]$SearchUrl,
+        [string]$Query,
+        [AllowNull()]$Stats = $null
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[object]
+    if ([string]::IsNullOrWhiteSpace($Html)) {
+        return $candidates.ToArray()
+    }
+
+    $cards = [regex]::Matches($Html, '(?is)<li\b[^>]*>.*?data-cy=["'']serpCard["''].*?</li>')
+    $cardIndex = 0
+    foreach ($card in $cards) {
+        $cardIndex++
+        Add-SourceMetric -Stats $Stats -Name "Candidates"
+        if ($cardIndex -gt $MaxHelloWorkCardsPerQuery) {
+            Add-SourceMetric -Stats $Stats -Name "SkippedByCap" -Amount ([Math]::Max(0, $cards.Count - $MaxHelloWorkCardsPerQuery))
+            break
+        }
+
+        $cardHtml = $card.Value
+        $linkMatch = [regex]::Match($cardHtml, '(?is)<a\b[^>]*data-cy=["'']offerTitle["''][^>]*>.*?</a>')
+        if (-not $linkMatch.Success) {
+            $linkMatch = [regex]::Match($cardHtml, '(?is)<a\b[^>]*href=["'']/fr-fr/emplois/\d+\.html[^>]*>.*?</a>')
+        }
+        if (-not $linkMatch.Success) {
+            continue
+        }
+
+        $linkHtml = $linkMatch.Value
+        $jobUrl = ConvertTo-AbsoluteUrl -BaseUrl $SearchUrl -Href (Get-HtmlAttributeValue -Html $linkHtml -Name "href")
+        if ([string]::IsNullOrWhiteSpace($jobUrl)) {
+            continue
+        }
+
+        $title = ""
+        $companyName = ""
+        $titleAttribute = Get-HtmlAttributeValue -Html $linkHtml -Name "title"
+        if ($titleAttribute -match "^(?<title>.+?)\s+-\s+(?<company>.+)$") {
+            $title = Repair-DisplayText $matches["title"]
+            $companyName = Repair-DisplayText $matches["company"]
+        }
+        if ([string]::IsNullOrWhiteSpace($title)) {
+            $titleMatch = [regex]::Match($linkHtml, '(?is)<p[^>]*class=["''][^"'']*typo-l[^"'']*["''][^>]*>(?<title>.*?)</p>')
+            if ($titleMatch.Success) {
+                $title = ConvertFrom-HtmlText $titleMatch.Groups["title"].Value
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($companyName)) {
+            $paragraphs = @([regex]::Matches($linkHtml, '(?is)<p[^>]*>(?<text>.*?)</p>'))
+            if ($paragraphs.Count -gt 1) {
+                $companyName = ConvertFrom-HtmlText $paragraphs[1].Groups["text"].Value
+            }
+        }
+
+        $location = ""
+        $locationMatch = [regex]::Match($cardHtml, '(?is)data-cy=["'']localisationCard["''][^>]*>\s*(?<value>.*?)\s*</div>')
+        if ($locationMatch.Success) {
+            $location = ConvertFrom-HtmlText $locationMatch.Groups["value"].Value
+        }
+
+        $contractType = ""
+        $contractMatch = [regex]::Match($cardHtml, '(?is)data-cy=["'']contractCard["''][^>]*>\s*(?<value>.*?)\s*</div>')
+        if ($contractMatch.Success) {
+            $contractType = ConvertFrom-HtmlText $contractMatch.Groups["value"].Value
+        }
+
+        $cardText = ConvertFrom-HtmlText $cardHtml
+        if (Test-ShouldSkipEarlyByContract -ContractType $contractType -Text (Join-CleanTextParts @($title, $cardText)) -Reliable) {
+            Add-SourceMetric -Stats $Stats -Name "SkippedContract"
+            continue
+        }
+
+        $publishedAt = ConvertFrom-FrenchRelativeDateText $cardText
+        if ($null -ne $publishedAt -and -not (Test-IsRecent $publishedAt)) {
+            Add-SourceMetric -Stats $Stats -Name "SkippedOld"
+            continue
+        }
+
+        $actualCandidateText = Join-CleanTextParts @($title, $companyName, $location, $contractType, $cardText)
+        $rankingText = Join-CleanTextParts @($actualCandidateText, ("search query {0}" -f $Query))
+        $actualMatch = Get-JobMatch -Title $title -Text $actualCandidateText
+        $rankingMatch = Get-JobMatch -Title $title -Text $rankingText
+        if (-not $actualMatch.IsMatch -and $actualCandidateText -notmatch $WttjUrlCandidatePattern -and $Query -notmatch $WttjUrlCandidatePattern) {
+            Add-SourceMetric -Stats $Stats -Name "SkippedNoMatch"
+            continue
+        }
+
+        $cardScore = $(if ($actualMatch.IsMatch) { $actualMatch.Score } elseif ($rankingMatch.IsMatch) { [Math]::Min(45, [int]$rankingMatch.Score) } else { 10 })
+        $candidates.Add([PSCustomObject]@{
+            Url          = $jobUrl
+            Title        = $title
+            Company      = $companyName
+            Location     = $location
+            Contract     = $contractType
+            PublishedAt  = $publishedAt
+            CardText     = $actualCandidateText
+            Query        = $Query
+            CardScore    = [int]$cardScore
+            CardPosition = $cardIndex
+        }) | Out-Null
+    }
+
+    return $candidates.ToArray()
+}
+
+function Get-HelloWorkJobs {
+    Set-RunWindowTitle "Analytics Job Crawler - HelloWork"
+    Write-RunStatus "Collecting HelloWork jobs from public search pages..."
+    Write-RunStatus ("HelloWork plan: {0} query/queries, {1} page(s) each, then at most {2} unique detail page(s)." -f $ApiSearchQueries.Count, $MaxHelloWorkPages, $MaxHelloWorkDetails)
+
+    $stats = Start-SourceStats "HelloWork"
+    $results = New-Object System.Collections.Generic.List[object]
+    $candidateByUrl = @{}
+    $queryIndex = 0
+
+    foreach ($query in $ApiSearchQueries) {
+        $queryIndex++
+        Write-RunStatus ("HelloWork query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        for ($page = 1; $page -le $MaxHelloWorkPages; $page++) {
+            $searchUrl = Get-HelloWorkSearchUrl -Query $query -Page $page
+            try {
+                Add-SourceMetric -Stats $stats -Name "SearchRequests"
+                $html = Invoke-TextRequest $searchUrl -Headers @{ "Accept" = "text/html,application/xhtml+xml" } -TimeoutSec 30
+            }
+            catch {
+                Add-SourceMetric -Stats $stats -Name "Errors"
+                Write-Warning ("HelloWork search failed for '{0}' page {1}: {2}" -f $query, $page, $_.Exception.Message)
+                break
+            }
+
+            $candidates = @(Get-HelloWorkCardCandidates -Html $html -SearchUrl $searchUrl -Query $query -Stats $stats)
+            foreach ($candidate in $candidates) {
+                if (-not $candidateByUrl.ContainsKey($candidate.Url) -or [int]$candidate.CardScore -gt [int]$candidateByUrl[$candidate.Url].CardScore) {
+                    $candidateByUrl[$candidate.Url] = $candidate
+                }
+            }
+
+            Write-CountProgress -Activity ("HelloWork search query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current $page -Total $MaxHelloWorkPages -Found $candidateByUrl.Count -Every 1
+            if ($candidates.Count -eq 0) {
+                break
+            }
+            Start-Sleep -Milliseconds $HelloWorkSearchDelayMilliseconds
+        }
+    }
+
+    $selectedCandidates = @($candidateByUrl.Values |
+        Sort-Object -Property `
+            @{ Expression = "CardScore"; Descending = $true },
+            @{ Expression = { if ($null -ne $_.PublishedAt) { $_.PublishedAt } else { [DateTimeOffset]::MinValue } }; Descending = $true },
+            @{ Expression = "CardPosition"; Descending = $false } |
+        Select-Object -First $MaxHelloWorkDetails)
+    Add-SourceMetric -Stats $stats -Name "SelectedDetails" -Amount $selectedCandidates.Count
+    Add-SourceMetric -Stats $stats -Name "SkippedByCap" -Amount ([Math]::Max(0, $candidateByUrl.Count - $selectedCandidates.Count))
+
+    Write-RunStatus ("HelloWork candidates selected: {0} unique detail page(s) from {1} candidate(s)." -f $selectedCandidates.Count, $candidateByUrl.Count)
+    $detailIndex = 0
+    foreach ($candidate in $selectedCandidates) {
+        $detailIndex++
+        Write-CountProgress -Activity "HelloWork detail pages" -Current $detailIndex -Total $selectedCandidates.Count -Found $results.Count -Every 5
+
+        try {
+            $html = Invoke-CachedTextRequest -Url $candidate.Url -CacheScope "hellowork-detail" -Headers @{ "Accept" = "text/html,application/xhtml+xml" } -TimeoutSec 30 -Stats $stats
+        }
+        catch {
+            Add-SourceMetric -Stats $stats -Name "Errors"
+            Write-Warning ("HelloWork detail failed for '{0}': {1}" -f $candidate.Url, $_.Exception.Message)
+            continue
+        }
+
+        $metadata = Get-HelloWorkJobMetadata -Html $html
+        $title = Get-PreferredValue $metadata.Title $candidate.Title
+        $companyName = Get-PreferredValue $metadata.Company $candidate.Company
+        $jobLocation = Get-PreferredValue $metadata.Location $candidate.Location
+        $pageTitle = Get-TitleFromHtml $html
+        $sourceText = Join-CleanTextParts @($title, $companyName, $jobLocation, $metadata.Contract, $metadata.Description, $candidate.CardText, $pageTitle)
+        $contractType = Get-ContractTypeFromText -Text $sourceText
+        if ([string]::IsNullOrWhiteSpace($contractType)) {
+            $contractType = Get-PreferredValue $metadata.Contract $candidate.Contract
+        }
+        if ([string]::IsNullOrWhiteSpace($contractType)) {
+            $contractType = Get-ContractTypeFromText -Text $sourceText -RawContractType $metadata.EmploymentType
+        }
+
+        $publishedAt = $metadata.DatePosted
+        if ($null -eq $publishedAt) {
+            $publishedAt = $candidate.PublishedAt
+        }
+        if (-not (Test-IsRecent $publishedAt)) {
+            Add-SourceMetric -Stats $stats -Name "SkippedOld"
+            continue
+        }
+
+        $match = Get-JobMatch -Title $title -Text $sourceText
+        if (-not $match.IsMatch) {
+            Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
+            continue
+        }
+
+        $result = New-JobResult -Title $title -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $candidate.Url -Platform "HelloWork" -PublishedAt $publishedAt -SourceText $sourceText
+        if ($null -ne $result) {
+            $results.Add($result) | Out-Null
+            Add-SourceMetric -Stats $stats -Name "Matches"
+        }
+
+        Start-Sleep -Milliseconds $HelloWorkDetailDelayMilliseconds
+    }
+
+    Write-RunStatus ("HelloWork complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
+    return $results.ToArray()
+}
+
 function Get-WelcomeKitJobs {
     if ([string]::IsNullOrWhiteSpace($WelcomeKitApiKey)) {
         Write-RunStatus "WelcomeKit API key not set; using WTTJ public sitemap fallback."
@@ -2899,6 +4523,7 @@ function Get-WelcomeKitJobs {
 
     Set-RunWindowTitle "Analytics Job Crawler - WTTJ API"
     Write-RunStatus "Collecting Welcome to the Jungle jobs through the official WelcomeKit API..."
+    $stats = Start-SourceStats "WelcomeKit"
     $results = New-Object System.Collections.Generic.List[object]
     $headers = @{
         "Authorization" = "Bearer $WelcomeKitApiKey"
@@ -2917,9 +4542,11 @@ function Get-WelcomeKitJobs {
         $url = "https://www.welcomekit.co/api/v1/external/jobs/all?{0}" -f (ConvertTo-QueryString $params)
 
         try {
+            Add-SourceMetric -Stats $stats -Name "SearchRequests"
             $jobs = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -TimeoutSec 45
         }
         catch {
+            Add-SourceMetric -Stats $stats -Name "Errors"
             Write-Warning ("WelcomeKit API call failed on page {0}: {1}" -f $page, $_.Exception.Message)
             break
         }
@@ -2930,20 +4557,30 @@ function Get-WelcomeKitJobs {
         }
 
         foreach ($job in $jobArray) {
+            Add-SourceMetric -Stats $stats -Name "Candidates"
             $publishedAt = ConvertTo-DateTimeOffsetOrNull $job.published_at
             if (-not (Test-IsRecent $publishedAt)) {
+                Add-SourceMetric -Stats $stats -Name "SkippedOld"
                 continue
             }
 
             $combined = ConvertFrom-HtmlText ("{0} {1} {2} {3}" -f $job.name, $job.profile, $job.description, $job.company_description)
+            $contractType = Get-ContractTypeFromText -Text $combined -RawContractType ([string]$job.contract_type)
+            if (Test-ShouldSkipEarlyByContract -ContractType $contractType -Text $combined -Reliable) {
+                Add-SourceMetric -Stats $stats -Name "SkippedContract"
+                continue
+            }
+
             $match = Get-JobMatch -Title ([string]$job.name) -Text $combined
             if (-not $match.IsMatch) {
+                Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
                 continue
             }
 
             $jobUrl = Get-WelcomeKitJobUrl $job
             $jobDetails = $null
             if ($job.PSObject.Properties.Name -contains "reference") {
+                Add-SourceMetric -Stats $stats -Name "DetailRequests"
                 $jobDetails = Get-WelcomeKitJobDetails -Reference ([string]$job.reference) -Headers $headers
             }
             if ($null -ne $jobDetails) {
@@ -2953,10 +4590,10 @@ function Get-WelcomeKitJobs {
 
             $companyName = Get-WelcomeKitCompanyName -Job $job -JobUrl $jobUrl
             $jobLocation = Get-WelcomeKitLocation -Job $job -JobUrl $jobUrl
-            $contractType = Get-ContractTypeFromText -Text $combined -RawContractType ([string]$job.contract_type)
             $result = New-JobResult -Title ([string]$job.name) -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $jobUrl -Platform "Welcome to the Jungle" -PublishedAt $publishedAt -SourceText $combined
             if ($null -ne $result) {
                 $results.Add($result) | Out-Null
+                Add-SourceMetric -Stats $stats -Name "Matches"
             }
         }
 
@@ -2966,6 +4603,7 @@ function Get-WelcomeKitJobs {
     }
 
     Write-RunStatus ("WelcomeKit API complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
     return $results.ToArray()
 }
 
@@ -2976,15 +4614,19 @@ function Get-WttjPublicFallbackJobs {
 
     Set-RunWindowTitle "Analytics Job Crawler - WTTJ"
     Write-RunStatus "Collecting Welcome to the Jungle jobs from public sitemaps..."
+    $stats = Start-SourceStats "WTTJ public"
     $results = New-Object System.Collections.Generic.List[object]
     $candidateSeen = @{}
     $candidates = New-Object System.Collections.Generic.List[object]
 
     try {
+        Add-SourceMetric -Stats $stats -Name "SearchRequests"
         $indexXml = Invoke-CurlTextRequest "https://www.welcometothejungle.com/sitemaps/index.xml.gz"
     }
     catch {
+        Add-SourceMetric -Stats $stats -Name "Errors"
         Write-Warning ("Could not read WTTJ sitemap index: {0}" -f $_.Exception.Message)
+        Complete-SourceStats $stats
         return @()
     }
 
@@ -2996,9 +4638,11 @@ function Get-WttjPublicFallbackJobs {
         Write-CountProgress -Activity "WTTJ sitemap scan" -Current $sitemapCount -Total $sitemapMatches.Count -Found $candidates.Count -Every 10
         $sitemapUrl = $sitemapMatch.Groups["url"].Value
         try {
+            Add-SourceMetric -Stats $stats -Name "SearchRequests"
             $xml = Invoke-CurlTextRequest $sitemapUrl
         }
         catch {
+            Add-SourceMetric -Stats $stats -Name "Errors"
             Write-Warning ("Could not read WTTJ sitemap {0}: {1}" -f $sitemapUrl, $_.Exception.Message)
             continue
         }
@@ -3016,13 +4660,23 @@ function Get-WttjPublicFallbackJobs {
             if ($candidateSeen.ContainsKey($loc)) {
                 continue
             }
+            Add-SourceMetric -Stats $stats -Name "Candidates"
 
             $lastmod = ConvertTo-DateTimeOffsetOrNull $lastmodMatch.Groups["lastmod"].Value
             if (-not (Test-IsRecent $lastmod)) {
+                Add-SourceMetric -Stats $stats -Name "SkippedOld"
                 continue
             }
 
             if ($loc -notmatch $WttjUrlCandidatePattern) {
+                Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
+                continue
+            }
+
+            $slugTitle = Get-TitleFromWttjUrl $loc
+            $urlText = "{0} {1}" -f $loc, (($slugTitle -replace "[-_]", " "))
+            if (Test-ShouldSkipEarlyByContract -Text $urlText) {
+                Add-SourceMetric -Stats $stats -Name "SkippedContract"
                 continue
             }
 
@@ -3030,7 +4684,7 @@ function Get-WttjPublicFallbackJobs {
             $candidates.Add([PSCustomObject]@{
                 Url       = $loc
                 LastMod   = $lastmod
-                SlugTitle = Get-TitleFromWttjUrl $loc
+                SlugTitle = $slugTitle
                 Score     = Get-WttjCandidateScore $loc
             }) | Out-Null
         }
@@ -3041,6 +4695,8 @@ function Get-WttjPublicFallbackJobs {
         Select-Object -First $MaxWttjCandidatePages
 
     $selectedCandidateCount = @($selectedCandidates).Count
+    Add-SourceMetric -Stats $stats -Name "SelectedDetails" -Amount $selectedCandidateCount
+    Add-SourceMetric -Stats $stats -Name "SkippedByCap" -Amount ([Math]::Max(0, $candidates.Count - $selectedCandidateCount))
     Write-RunStatus ("WTTJ candidates selected: {0} page(s) to inspect." -f $selectedCandidateCount)
     $count = 0
     foreach ($candidate in $selectedCandidates) {
@@ -3052,14 +4708,24 @@ function Get-WttjPublicFallbackJobs {
         $urlOnlyMatch = $urlMatchResult.IsMatch
 
         try {
-            $html = Invoke-CurlTextRequest $candidate.Url
+            $html = Get-CachedText -Scope "wttj-detail" -Key $candidate.Url
+            if ($null -ne $html) {
+                Add-SourceMetric -Stats $stats -Name "CacheHits"
+            }
+            else {
+                Add-SourceMetric -Stats $stats -Name "DetailRequests"
+                $html = Invoke-CurlTextRequest $candidate.Url
+                Set-CachedText -Scope "wttj-detail" -Key $candidate.Url -Text $html
+            }
         }
         catch {
+            Add-SourceMetric -Stats $stats -Name "Errors"
             if ($urlOnlyMatch) {
                 $jobLocation = Get-WttjLocation -Html "" -Url $candidate.Url -Title $candidate.SlugTitle
                 $fallbackResult = New-JobResult -Title $candidate.SlugTitle -CompanyName (Get-WttjCompanyNameFromUrl $candidate.Url) -JobLocation $jobLocation -ContractType (Get-ContractTypeFromText -Text $urlText) -MatchScore $urlMatchResult.Score -MatchLevel $urlMatchResult.Level -MatchedKeywords $urlMatchResult.Keywords -Url $candidate.Url -Platform "Welcome to the Jungle" -PublishedAt $candidate.LastMod -SourceText $urlText
                 if ($null -ne $fallbackResult) {
                     $results.Add($fallbackResult) | Out-Null
+                    Add-SourceMetric -Stats $stats -Name "Matches"
                 }
             }
             continue
@@ -3071,6 +4737,7 @@ function Get-WttjPublicFallbackJobs {
                 $fallbackResult = New-JobResult -Title $candidate.SlugTitle -CompanyName (Get-WttjCompanyNameFromUrl $candidate.Url) -JobLocation $jobLocation -ContractType (Get-ContractTypeFromText -Text $urlText) -MatchScore $urlMatchResult.Score -MatchLevel $urlMatchResult.Level -MatchedKeywords $urlMatchResult.Keywords -Url $candidate.Url -Platform "Welcome to the Jungle" -PublishedAt $candidate.LastMod -SourceText $urlText
                 if ($null -ne $fallbackResult) {
                     $results.Add($fallbackResult) | Out-Null
+                    Add-SourceMetric -Stats $stats -Name "Matches"
                 }
             }
             continue
@@ -3091,6 +4758,7 @@ function Get-WttjPublicFallbackJobs {
         }
 
         if (-not (Test-IsRecent $publishedAt)) {
+            Add-SourceMetric -Stats $stats -Name "SkippedOld"
             continue
         }
 
@@ -3098,6 +4766,7 @@ function Get-WttjPublicFallbackJobs {
         $combined = "{0} {1} {2}" -f $title, $candidate.Url, $pageText
         $match = Get-JobMatch -Title $title -Text $combined
         if (-not $match.IsMatch -and -not $urlOnlyMatch) {
+            Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
             continue
         }
         if (-not $match.IsMatch) {
@@ -3108,21 +4777,24 @@ function Get-WttjPublicFallbackJobs {
         $result = New-JobResult -Title $title -CompanyName (Get-WttjCompanyNameFromUrl $candidate.Url) -JobLocation $jobLocation -ContractType (Get-ContractTypeFromText -Text $combined) -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $candidate.Url -Platform "Welcome to the Jungle" -PublishedAt $publishedAt -SourceText $combined
         if ($null -ne $result) {
             $results.Add($result) | Out-Null
+            Add-SourceMetric -Stats $stats -Name "Matches"
         }
 
         Start-Sleep -Milliseconds 250
     }
 
     Write-RunStatus ("WTTJ public fallback complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
     return $results.ToArray()
 }
 
 function Get-LinkedInJobs {
     Set-RunWindowTitle "Analytics Job Crawler - LinkedIn"
     Write-RunStatus "Collecting LinkedIn jobs from public guest endpoints..."
-    Write-RunStatus ("LinkedIn plan: {0} search query/queries, up to {1} page(s) each. Detail pages are fetched slowly to reduce rate-limit errors." -f $LinkedInQueries.Count, $MaxLinkedInSearchPages)
+    Write-RunStatus ("LinkedIn plan: {0} search query/queries, up to {1} page(s) each, then up to {2} ranked detail page(s)." -f $LinkedInQueries.Count, $MaxLinkedInSearchPages, $(if ($MaxLinkedInDetails -gt 0) { $MaxLinkedInDetails } else { "all" }))
+    $stats = Start-SourceStats "LinkedIn"
     $results = New-Object System.Collections.Generic.List[object]
-    $detailCache = @{}
+    $candidateById = @{}
     $seconds = [Math]::Max(86400, [int]([Math]::Abs($DaysBack) * 86400))
 
     $queryIndex = 0
@@ -3140,14 +4812,17 @@ function Get-LinkedInJobs {
             $url = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?{0}" -f (ConvertTo-QueryString $params)
 
             try {
+                Add-SourceMetric -Stats $stats -Name "SearchRequests"
                 $html = Invoke-TextRequest $url -Headers @{ "Accept" = "text/html,*/*" } -TimeoutSec 30
             }
             catch {
                 Start-Sleep -Seconds 8
                 try {
+                    Add-SourceMetric -Stats $stats -Name "SearchRequests"
                     $html = Invoke-TextRequest $url -Headers @{ "Accept" = "text/html,*/*" } -TimeoutSec 30
                 }
                 catch {
+                    Add-SourceMetric -Stats $stats -Name "Errors"
                     Write-Warning ("LinkedIn search failed for '{0}' page {1}: {2}" -f $query, ($page + 1), $_.Exception.Message)
                     break
                 }
@@ -3163,12 +4838,12 @@ function Get-LinkedInJobs {
                 Write-RunStatus ("LinkedIn query {0}/{1}, page {2}/{3}: no readable cards found." -f $queryIndex, $LinkedInQueries.Count, ($page + 1), $MaxLinkedInSearchPages)
                 break
             }
-            Write-RunStatus ("LinkedIn query {0}/{1}, page {2}/{3}: {4} card(s) found; {5} matches so far." -f $queryIndex, $LinkedInQueries.Count, ($page + 1), $MaxLinkedInSearchPages, $cards.Count, $results.Count)
+            Write-RunStatus ("LinkedIn query {0}/{1}, page {2}/{3}: {4} card(s) found; {5} unique candidate(s) so far." -f $queryIndex, $LinkedInQueries.Count, ($page + 1), $MaxLinkedInSearchPages, $cards.Count, $candidateById.Count)
 
             $cardIndex = 0
             foreach ($card in $cards) {
                 $cardIndex++
-                Write-CountProgress -Activity ("LinkedIn details q{0}/{1} p{2}/{3}" -f $queryIndex, $LinkedInQueries.Count, ($page + 1), $MaxLinkedInSearchPages) -Current $cardIndex -Total $cards.Count -Found $results.Count -Every 10
+                Add-SourceMetric -Stats $stats -Name "Candidates"
                 $cardHtml = $card.Value
                 $id = $card.Groups["id"].Value
 
@@ -3191,46 +4866,41 @@ function Get-LinkedInJobs {
                 $jobUrl = ConvertTo-CleanUrl $urlMatch.Groups["url"].Value
                 $publishedAt = ConvertTo-DateTimeOffsetOrNull $dateMatch.Groups["date"].Value
                 if (-not (Test-IsRecent $publishedAt)) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedOld"
                     continue
                 }
 
-                if (-not $detailCache.ContainsKey($id)) {
-                    try {
-                        $detailCache[$id] = Invoke-TextRequest "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/$id" -Headers @{ "Accept" = "text/html,*/*" } -TimeoutSec 30
-                    }
-                    catch {
-                        Start-Sleep -Seconds 5
-                        try {
-                            $detailCache[$id] = Invoke-TextRequest "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/$id" -Headers @{ "Accept" = "text/html,*/*" } -TimeoutSec 30
-                        }
-                        catch {
-                            $detailCache[$id] = ""
-                        }
-                    }
-                    Start-Sleep -Milliseconds $LinkedInDelayMilliseconds
-                }
-
-                $detailText = ConvertFrom-HtmlText $detailCache[$id]
-                $combined = "{0} {1} {2}" -f $title, $jobUrl, $detailText
-                $match = Get-JobMatch -Title $title -Text $combined
-                if (-not $match.IsMatch) {
+                $cardText = Join-CleanTextParts @($title, $companyName, $jobLocation, $jobUrl, (ConvertFrom-HtmlText $cardHtml))
+                if (Test-ShouldSkipEarlyByContract -Text $cardText) {
+                    Add-SourceMetric -Stats $stats -Name "SkippedContract"
                     continue
                 }
 
-                if ([string]::IsNullOrWhiteSpace($companyName)) {
-                    $detailCompanyMatch = [regex]::Match($detailCache[$id], '(?is)<a[^>]*class="[^"]*topcard__org-name-link[^"]*"[^>]*>(?<company>.*?)</a>')
-                    if ($detailCompanyMatch.Success) {
-                        $companyName = ConvertFrom-HtmlText $detailCompanyMatch.Groups["company"].Value
-                    }
+                $cardMatch = Get-JobMatch -Title $title -Text $cardText
+                $cardScore = 10
+                if ($cardMatch.IsMatch) {
+                    $cardScore = [int]$cardMatch.Score
                 }
-                if ([string]::IsNullOrWhiteSpace($jobLocation)) {
-                    $jobLocation = Get-LinkedInLocationFromHtml $detailCache[$id]
+                elseif ($cardText -match $WttjUrlCandidatePattern) {
+                    $cardScore = 45
                 }
 
-                $contractType = Get-LinkedInContractType -Title $title -DetailText $detailText
-                $result = New-JobResult -Title $title -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $jobUrl -Platform "LinkedIn" -PublishedAt $publishedAt -SourceText $combined
-                if ($null -ne $result) {
-                    $results.Add($result) | Out-Null
+                $candidate = [PSCustomObject]@{
+                    Id           = $id
+                    Title        = $title
+                    Company      = $companyName
+                    Location     = $jobLocation
+                    Url          = $jobUrl
+                    PublishedAt  = $publishedAt
+                    CardText     = $cardText
+                    CardScore    = [int]$cardScore
+                    QueryIndex   = $queryIndex
+                    Page         = $page
+                    CardPosition = $cardIndex
+                }
+
+                if (-not $candidateById.ContainsKey($id) -or [int]$candidate.CardScore -gt [int]$candidateById[$id].CardScore) {
+                    $candidateById[$id] = $candidate
                 }
             }
 
@@ -3238,7 +4908,89 @@ function Get-LinkedInJobs {
         }
     }
 
+    $orderedCandidates = @($candidateById.Values |
+        Sort-Object -Property `
+            @{ Expression = "CardScore"; Descending = $true },
+            @{ Expression = "PublishedAt"; Descending = $true },
+            @{ Expression = "QueryIndex"; Descending = $false },
+            @{ Expression = "Page"; Descending = $false },
+            @{ Expression = "CardPosition"; Descending = $false })
+    if ($MaxLinkedInDetails -gt 0) {
+        $selectedCandidates = @($orderedCandidates | Select-Object -First $MaxLinkedInDetails)
+    }
+    else {
+        $selectedCandidates = @($orderedCandidates)
+    }
+
+    Add-SourceMetric -Stats $stats -Name "SelectedDetails" -Amount $selectedCandidates.Count
+    Add-SourceMetric -Stats $stats -Name "SkippedByCap" -Amount ([Math]::Max(0, $orderedCandidates.Count - $selectedCandidates.Count))
+    Write-RunStatus ("LinkedIn candidates selected: {0} detail page(s) from {1} unique candidate(s)." -f $selectedCandidates.Count, $orderedCandidates.Count)
+
+    $candidateIndex = 0
+    foreach ($candidate in $selectedCandidates) {
+        $candidateIndex++
+        Write-CountProgress -Activity "LinkedIn detail pages" -Current $candidateIndex -Total $selectedCandidates.Count -Found $results.Count -Every 10
+
+        $detailUrl = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{0}" -f $candidate.Id
+        $detailHtml = ""
+        try {
+            $cacheHitsBefore = [int]$stats["CacheHits"]
+            $detailHtml = Invoke-CachedTextRequest -Url $detailUrl -CacheScope "linkedin-detail" -Headers @{ "Accept" = "text/html,*/*" } -TimeoutSec 30 -Stats $stats
+            if ([int]$stats["CacheHits"] -eq $cacheHitsBefore) {
+                Start-Sleep -Milliseconds $LinkedInDelayMilliseconds
+            }
+        }
+        catch {
+            Start-Sleep -Seconds 5
+            try {
+                $cacheHitsBefore = [int]$stats["CacheHits"]
+                $detailHtml = Invoke-CachedTextRequest -Url $detailUrl -CacheScope "linkedin-detail" -Headers @{ "Accept" = "text/html,*/*" } -TimeoutSec 30 -Stats $stats
+                if ([int]$stats["CacheHits"] -eq $cacheHitsBefore) {
+                    Start-Sleep -Milliseconds $LinkedInDelayMilliseconds
+                }
+            }
+            catch {
+                Add-SourceMetric -Stats $stats -Name "Errors"
+                $detailHtml = ""
+            }
+        }
+
+        $detailText = ConvertFrom-HtmlText $detailHtml
+        $combined = Join-CleanTextParts @($candidate.Title, $candidate.Url, $candidate.CardText, $detailText)
+        $match = Get-JobMatch -Title $candidate.Title -Text $combined
+        if (-not $match.IsMatch) {
+            Add-SourceMetric -Stats $stats -Name "SkippedNoMatch"
+            continue
+        }
+
+        $companyName = $candidate.Company
+        if ([string]::IsNullOrWhiteSpace($companyName)) {
+            $detailCompanyMatch = [regex]::Match($detailHtml, '(?is)<a[^>]*class="[^"]*topcard__org-name-link[^"]*"[^>]*>(?<company>.*?)</a>')
+            if ($detailCompanyMatch.Success) {
+                $companyName = ConvertFrom-HtmlText $detailCompanyMatch.Groups["company"].Value
+            }
+        }
+
+        $jobLocation = $candidate.Location
+        if ([string]::IsNullOrWhiteSpace($jobLocation)) {
+            $jobLocation = Get-LinkedInLocationFromHtml $detailHtml
+        }
+
+        $contractType = Get-LinkedInContractType -Title $candidate.Title -DetailText $detailText
+        if (Test-IsExcludedContractType $contractType) {
+            Add-SourceMetric -Stats $stats -Name "SkippedContract"
+            continue
+        }
+
+        $result = New-JobResult -Title $candidate.Title -CompanyName $companyName -JobLocation $jobLocation -ContractType $contractType -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url $candidate.Url -Platform "LinkedIn" -PublishedAt $candidate.PublishedAt -SourceText $combined
+        if ($null -ne $result) {
+            $results.Add($result) | Out-Null
+            Add-SourceMetric -Stats $stats -Name "Matches"
+        }
+    }
+
     Write-RunStatus ("LinkedIn complete: {0} matching jobs." -f $results.Count)
+    Complete-SourceStats $stats
     return $results.ToArray()
 }
 
@@ -3256,9 +5008,39 @@ function Assert-ScoringCondition {
 function Invoke-ScoringSelfTest {
     $script:JobCrawlerPreferences = Get-JobCrawlerPreferences
     $script:SeenResultKeys = @{}
+    $script:FeedbackLearningProfile = $null
+
+    $mojibakeInterim = "Int" + [string][char]0x00C3 + [string][char]0x00A9 + "rim - 6 Mois"
+    $expectedInterim = "Int" + [string][char]0x00E9 + "rim - 6 Mois"
+    Assert-ScoringCondition -Condition ((Repair-DisplayText $mojibakeInterim) -eq $expectedInterim) -Message "Expected UTF-8 mojibake to be repaired with French accents."
+    $terminalMojibakeInterim = "Int" + [string][char]0x251C + [string][char]0x00AE + "rim - 6 Mois"
+    Assert-ScoringCondition -Condition ((Repair-DisplayText $terminalMojibakeInterim) -eq $expectedInterim) -Message "Expected terminal mojibake to be repaired with French accents."
+    $oemMojibakeLocation = "CDI " + [string][char]0x251C + [string][char]0x00E1 + " Paris"
+    $expectedLocation = "CDI " + [string][char]0x00E0 + " Paris"
+    Assert-ScoringCondition -Condition ((Repair-DisplayText $oemMojibakeLocation) -eq $expectedLocation) -Message "Expected OEM mojibake to be repaired with French accents."
+    Assert-ScoringCondition -Condition (Test-IsExcludedContractType "Freelance") -Message "Expected freelance contracts to be excluded."
 
     $annonceurMatch = Get-JobMatch -Title "Web Analyst CRO" -Text "Google Tag Manager GA4 ContentSquare dataLayer tagging plan"
     Assert-ScoringCondition -Condition $annonceurMatch.IsMatch -Message "Expected a Web Analyst CRO role with web analytics tools to match."
+    $expandedToolMatch = Get-JobMatch -Title "Tracking Specialist" -Text "Tag Commander Commanders Act Tealium server-side tracking RGPD"
+    Assert-ScoringCondition -Condition $expandedToolMatch.IsMatch -Message "Expected Tag Commander, Commanders Act, Tealium, server-side, and RGPD signals to match."
+    Assert-ScoringCondition -Condition ($expandedToolMatch.Keywords -match "Tag Commander" -and $expandedToolMatch.Keywords -match "Tealium" -and $expandedToolMatch.Keywords -match "server-side" -and $expandedToolMatch.Keywords -match "RGPD") -Message "Expected expanded tool/mission keywords to be reported."
+    $positiveFeedbackRow = New-OrderedJobRecord @{
+        status           = "interesting"
+        job_title        = "Web Analyst"
+        matched_keywords = "Tealium; server-side tracking"
+    }
+    $ignoredFeedbackRow = New-OrderedJobRecord @{
+        status    = "ignored"
+        job_title = "SEO Manager"
+        notes     = "ignore_reason=too_seo_sea_marketing; detail=too marketing"
+    }
+    $script:FeedbackLearningProfile = New-FeedbackLearningProfile -Rows @($positiveFeedbackRow, $ignoredFeedbackRow)
+    $positiveLearning = Get-FeedbackLearningAdjustment -FullText "tealium server side tracking" -HasCoreTitleSignal:$true -HasWebAnalyticsToolSignal:$true -HasDigitalAnalyticsContext:$true
+    Assert-ScoringCondition -Condition ([int]$positiveLearning.Adjustment -gt 0 -and (($positiveLearning.Reasons -join ";") -match "Tealium")) -Message "Expected positive saved tracker feedback to boost similar tool signals."
+    $negativeLearning = Get-FeedbackLearningAdjustment -FullText "seo sea paid media campaign" -HasCoreTitleSignal:$false -HasWebAnalyticsToolSignal:$false -HasDigitalAnalyticsContext:$false
+    Assert-ScoringCondition -Condition ([int]$negativeLearning.Adjustment -lt 0 -and (($negativeLearning.Reasons -join ";") -match "SEO/SEA")) -Message "Expected ignored saved tracker feedback to penalize similar marketing-only signals."
+    $script:FeedbackLearningProfile = $null
     $annonceurResult = New-JobResult `
         -Title "Web Analyst CRO" `
         -CompanyName "Radio France" `
@@ -3292,11 +5074,112 @@ function Invoke-ScoringSelfTest {
 
     $dataEngineeringMatch = Get-JobMatch -Title "Data Analyst" -Text "python dbt snowflake airflow data warehouse data pipeline"
     Assert-ScoringCondition -Condition (-not $dataEngineeringMatch.IsMatch) -Message "Expected warehouse/python data analyst role without web analytics signals to stay below the match threshold."
+    $companyNameOnlyToolMatch = Get-JobMatch -Title "People Business Partner" -Text "Contentsquare Paris Full-time"
+    Assert-ScoringCondition -Condition (-not $companyNameOnlyToolMatch.IsMatch) -Message "Expected a non-analytics role not to match only because the company name is an analytics tool."
+
+    $titleOnlyExcludedContract = New-JobResult `
+        -Title "Alternance Assistant web analytics" `
+        -CompanyName "Example Company" `
+        -JobLocation "Paris" `
+        -ContractType "" `
+        -MatchScore $annonceurMatch.Score `
+        -MatchLevel $annonceurMatch.Level `
+        -MatchedKeywords $annonceurMatch.Keywords `
+        -Url "https://example.test/jobs/alternance-web-analytics" `
+        -Platform "Test" `
+        -PublishedAt ([DateTimeOffset]::Now) `
+        -SourceText "Google Analytics tagging plan"
+    Assert-ScoringCondition -Condition ((Get-RowValue -Row $titleOnlyExcludedContract -Name "contract_type") -eq "Apprenticeship") -Message "Expected title-only alternance to be mapped to Apprenticeship."
+    Assert-ScoringCondition -Condition (Test-IsExcludedContractType (Get-RowValue -Row $titleOnlyExcludedContract -Name "contract_type")) -Message "Expected title-only alternance to be excluded by contract filtering."
+    $titleOverridesGenericContract = New-JobResult `
+        -Title "STAGE - Communication digitale et web analytics" `
+        -CompanyName "Example Company" `
+        -JobLocation "Paris" `
+        -ContractType "Full-time" `
+        -MatchScore $annonceurMatch.Score `
+        -MatchLevel $annonceurMatch.Level `
+        -MatchedKeywords $annonceurMatch.Keywords `
+        -Url "https://example.test/jobs/stage-web-analytics" `
+        -Platform "Test" `
+        -PublishedAt ([DateTimeOffset]::Now) `
+        -SourceText "Google Analytics tagging plan"
+    Assert-ScoringCondition -Condition ((Get-RowValue -Row $titleOverridesGenericContract -Name "contract_type") -eq "Internship") -Message "Expected explicit STAGE title to override generic Full-time contract."
 
     $junkLocation = Get-WttjLocationFromUrl "https://www.welcometothejungle.com/fr/companies/acme/jobs/web-analyst_5Kvvowa"
     Assert-ScoringCondition -Condition ([string]::IsNullOrWhiteSpace($junkLocation)) -Message "Expected random WTTJ URL suffixes not to become city names."
     $parisLocation = Get-WttjLocationFromUrl "https://www.welcometothejungle.com/fr/companies/acme/jobs/web-analyst_paris"
     Assert-ScoringCondition -Condition ($parisLocation -eq "Paris") -Message "Expected readable WTTJ city suffix to be kept."
+
+    $franceTravailMock = [PSCustomObject]@{
+        id                  = "123ABC"
+        intitule            = "Web Analyst"
+        description         = "Google Analytics GA4 Google Tag Manager dataLayer"
+        dateCreation        = ([DateTimeOffset]::Now.ToString("o"))
+        typeContrat         = "CDI"
+        typeContratLibelle  = "CDI"
+        urlPostulation      = "https://candidat.francetravail.fr/offres/recherche/detail/123ABC"
+        lieuTravail         = [PSCustomObject]@{ libelle = "75 - Paris" }
+        entreprise          = [PSCustomObject]@{ nom = "Example Annonceur" }
+    }
+    Assert-ScoringCondition -Condition ((Get-FranceTravailContractType $franceTravailMock) -eq "CDI") -Message "Expected France Travail CDI contract mapping."
+    Assert-ScoringCondition -Condition ((Get-FranceTravailCompanyName $franceTravailMock) -eq "Example Annonceur") -Message "Expected France Travail company mapping."
+    Assert-ScoringCondition -Condition ((Get-FranceTravailLocation $franceTravailMock) -eq "75 - Paris") -Message "Expected France Travail location mapping."
+
+    $adzunaMock = [PSCustomObject]@{
+        title         = "Digital Analyst"
+        description   = "Piano Analytics ContentSquare Google Analytics"
+        created       = ([DateTimeOffset]::Now.ToString("o"))
+        redirect_url  = "https://www.adzuna.fr/details/123"
+        contract_type = "permanent"
+        contract_time = "full_time"
+        company       = [PSCustomObject]@{ display_name = "Example Retailer" }
+        location      = [PSCustomObject]@{ display_name = "Paris, Ile-de-France" }
+    }
+    Assert-ScoringCondition -Condition ((Get-AdzunaContractType $adzunaMock) -eq "Permanent") -Message "Expected Adzuna permanent contract mapping."
+    Assert-ScoringCondition -Condition ((Get-AdzunaCompanyName $adzunaMock) -eq "Example Retailer") -Message "Expected Adzuna company mapping."
+    Assert-ScoringCondition -Condition ((Get-AdzunaLocation $adzunaMock) -eq "Paris, Ile-de-France") -Message "Expected Adzuna location mapping."
+
+    $apecMock = [PSCustomObject]@{
+        id              = 123456789
+        numeroOffre     = "123456789W"
+        intitule        = "Web Analyst F/H"
+        nomCommercial   = "Example Retailer"
+        lieuTexte       = "Paris - 75"
+        typeContrat     = 101888
+        texteOffre      = "Google Analytics GA4 Google Tag Manager ContentSquare"
+        datePublication = ([DateTimeOffset]::Now.ToString("yyyy-MM-ddTHH:mm:ss.000+0000"))
+    }
+    Assert-ScoringCondition -Condition ((Get-ApecContractType $apecMock) -eq "CDI") -Message "Expected APEC CDI contract mapping."
+    Assert-ScoringCondition -Condition ((Get-ApecJobUrl $apecMock) -match "/detail-offre/123456789W$") -Message "Expected APEC detail URL mapping."
+
+    $helloWorkMockHtml = @'
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Web Analyst H/F","description":"Google Tag Manager GA4 dataLayer","datePosted":"2026-06-16T09:38:15Z","employmentType":"FULL_TIME","hiringOrganization":{"@type":"Organization","name":"Example Retailer"},"jobLocation":{"@type":"Place","address":{"@type":"PostalAddress","addressLocality":"Paris","addressRegion":"Ile-de-France","addressCountry":"FR"}}}</script>
+<script type="application/ld+json">{"JobTitle":"Web Analyst H/F","Company":"Example Retailer","Localisation":"Paris - 75","ContractType":"CDI","Description":"Piano Analytics ContentSquare"}</script>
+'@
+    $helloWorkMetadata = Get-HelloWorkJobMetadata -Html $helloWorkMockHtml
+    Assert-ScoringCondition -Condition ($helloWorkMetadata.Title -eq "Web Analyst H/F") -Message "Expected HelloWork title metadata mapping."
+    Assert-ScoringCondition -Condition ($helloWorkMetadata.Company -eq "Example Retailer") -Message "Expected HelloWork company metadata mapping."
+    Assert-ScoringCondition -Condition ($helloWorkMetadata.Location -eq "Paris - 75") -Message "Expected HelloWork custom location metadata to be preferred."
+    Assert-ScoringCondition -Condition ($helloWorkMetadata.Contract -eq "CDI") -Message "Expected HelloWork contract metadata mapping."
+    Assert-ScoringCondition -Condition ($helloWorkMetadata.Description -match "Piano Analytics") -Message "Expected HelloWork custom description metadata mapping."
+    Assert-ScoringCondition -Condition (Test-IsRecent (ConvertFrom-FrenchRelativeDateText "il y a 2 jours")) -Message "Expected French relative dates to parse as recent."
+
+    $crossPlatformMatch = Get-JobMatch -Title "Web Analyst" -Text "GA4 Google Tag Manager ContentSquare dataLayer"
+    $crossPlatformRows = @(
+        (New-JobResult -Title "Web Analyst" -CompanyName "Radio France" -JobLocation "Paris" -ContractType "CDI" -MatchScore $crossPlatformMatch.Score -MatchLevel $crossPlatformMatch.Level -MatchedKeywords $crossPlatformMatch.Keywords -Url "https://www.linkedin.com/jobs/view/111" -Platform "LinkedIn" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager ContentSquare dataLayer"),
+        (New-JobResult -Title "Analyste Web H/F" -CompanyName "Radio France" -JobLocation "75 - Paris" -ContractType "CDI" -MatchScore $crossPlatformMatch.Score -MatchLevel $crossPlatformMatch.Level -MatchedKeywords $crossPlatformMatch.Keywords -Url "https://candidat.francetravail.fr/offres/recherche/detail/111" -Platform "France Travail" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager ContentSquare dataLayer"),
+        (New-JobResult -Title "Web Analyst" -CompanyName "Radio France" -JobLocation "Paris, Ile-de-France" -ContractType "Permanent" -MatchScore $crossPlatformMatch.Score -MatchLevel $crossPlatformMatch.Level -MatchedKeywords $crossPlatformMatch.Keywords -Url "https://www.adzuna.fr/details/111" -Platform "Adzuna" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager ContentSquare dataLayer"),
+        (New-JobResult -Title "Web Analyst F/H" -CompanyName "Radio France" -JobLocation "Paris - 75" -ContractType "CDI" -MatchScore $crossPlatformMatch.Score -MatchLevel $crossPlatformMatch.Level -MatchedKeywords $crossPlatformMatch.Keywords -Url "https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/111W" -Platform "APEC" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager ContentSquare dataLayer"),
+        (New-JobResult -Title "Web Analyst H/F" -CompanyName "Radio France" -JobLocation "Paris - 75" -ContractType "CDI" -MatchScore $crossPlatformMatch.Score -MatchLevel $crossPlatformMatch.Level -MatchedKeywords $crossPlatformMatch.Keywords -Url "https://www.hellowork.com/fr-fr/emplois/111.html" -Platform "HelloWork" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager ContentSquare dataLayer")
+    )
+    $crossPlatformKeys = @($crossPlatformRows | ForEach-Object { Get-JobDedupeKeyFromRow $_ } | Select-Object -Unique)
+    Assert-ScoringCondition -Condition ($crossPlatformKeys.Count -eq 1) -Message "Expected same company/title role from several platforms to share one dedupe key."
+    $crossPlatformMerged = Merge-SimilarJobRows -Rows $crossPlatformRows -Reason "test cross-platform duplicate"
+    $crossPlatformSources = Get-RowValue -Row $crossPlatformMerged -Name "platform"
+    Assert-ScoringCondition -Condition ($crossPlatformSources -match "LinkedIn" -and $crossPlatformSources -match "France Travail" -and $crossPlatformSources -match "Adzuna" -and $crossPlatformSources -match "APEC" -and $crossPlatformSources -match "HelloWork") -Message "Expected merged cross-platform row to keep all source names."
+    Assert-ScoringCondition -Condition ((Get-RowValue -Row $crossPlatformMerged -Name "source_count") -eq "5") -Message "Expected source_count to count unique platforms."
+    Assert-ScoringCondition -Condition ((Get-RowValue -Row $crossPlatformMerged -Name "job_url_raw") -match "apec") -Message "Expected APEC URL to be preferred over LinkedIn, France Travail, HelloWork, and Adzuna for this merge."
+    Assert-ScoringCondition -Condition ((Get-RowValue -Row $crossPlatformMerged -Name "alternate_urls") -match "linkedin" -and (Get-RowValue -Row $crossPlatformMerged -Name "alternate_urls") -match "adzuna" -and (Get-RowValue -Row $crossPlatformMerged -Name "alternate_urls") -match "hellowork" -and (Get-RowValue -Row $crossPlatformMerged -Name "alternate_urls") -match "francetravail") -Message "Expected alternate URLs to keep non-primary cross-platform links."
 
     Write-Host "Scoring self-test passed."
 }
@@ -3314,8 +5197,34 @@ Write-RunStatus ("Tracker file: {0}" -f $TrackerPath)
 
 $existingTrackerRows = @(Import-TrackerRows -Path $TrackerPath)
 Write-RunStatus ("Loaded {0} existing tracker row(s)." -f $existingTrackerRows.Count)
+$script:FeedbackLearningProfile = New-FeedbackLearningProfile -Rows $existingTrackerRows
+Write-RunStatus ("Feedback profile: {0} positive row(s), {1} ignored row(s)." -f $script:FeedbackLearningProfile.PositiveRows, $script:FeedbackLearningProfile.IgnoredRows)
 
 $allResults = New-Object System.Collections.Generic.List[object]
+
+if (-not $SkipFranceTravail) {
+    foreach ($result in @(Get-FranceTravailJobs)) {
+        $allResults.Add($result) | Out-Null
+    }
+}
+
+if (-not $SkipAdzuna) {
+    foreach ($result in @(Get-AdzunaJobs)) {
+        $allResults.Add($result) | Out-Null
+    }
+}
+
+if (-not $SkipApec) {
+    foreach ($result in @(Get-ApecJobs)) {
+        $allResults.Add($result) | Out-Null
+    }
+}
+
+if (-not $SkipHelloWork) {
+    foreach ($result in @(Get-HelloWorkJobs)) {
+        $allResults.Add($result) | Out-Null
+    }
+}
 
 if (-not $SkipWttj) {
     $welcomeKitResults = @(Get-WelcomeKitJobs)
@@ -3342,7 +5251,7 @@ $filteredCrawlResults = @($sortedCrawlResults | Where-Object { -not (Test-IsExcl
 $excludedContractCount = @($sortedCrawlResults).Count - @($filteredCrawlResults).Count
 
 if ($excludedContractCount -gt 0) {
-    Write-RunStatus ("Excluded {0} CDD/apprenticeship/internship job(s) from this crawl." -f $excludedContractCount)
+    Write-RunStatus ("Excluded {0} CDD/apprenticeship/internship/freelance job(s) from this crawl." -f $excludedContractCount)
 }
 
 $feedbackAdjustedResults = @(Apply-FeedbackScoring -Rows $filteredCrawlResults -ExistingRows $existingTrackerRows)
@@ -3357,6 +5266,7 @@ $crawlSummary = @{
     DuplicateCount = $mergeResult.DuplicateCount
     RemovedCount = $mergeResult.RemovedCount
     PreservedAppliedCount = $mergeResult.PreservedAppliedCount
+    SourceDiagnostics = Get-SourceStatsSummaryText
     BackupPath = $mergeResult.BackupPath
 }
 Export-TrackerWorkbook -Rows $finalResults -Path $TrackerPath -Summary $crawlSummary
@@ -3364,6 +5274,7 @@ Export-TrackerWorkbook -Rows $finalResults -Path $TrackerPath -Summary $crawlSum
 Set-RunWindowTitle "Analytics Job Crawler - Finished"
 Write-Host ""
 Write-RunStatus ("Wrote tracker with {0} row(s): {1} current job(s), {2} preserved application row(s), {3} removed by retention." -f @($finalResults).Count, @($mergeResult.CurrentRows).Count, $mergeResult.PreservedAppliedCount, $mergeResult.RemovedCount)
+Write-RunStatus ("Crawl mode: {0}. Source diagnostics: {1}" -f $CrawlMode, (Get-SourceStatsSummaryText))
 if (-not [string]::IsNullOrWhiteSpace($mergeResult.BackupPath)) {
     Write-RunStatus ("Backup: {0}" -f $mergeResult.BackupPath)
 }

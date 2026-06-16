@@ -21,17 +21,7 @@ $ColumnLabels = Get-JobTrackerColumnLabels
 function Get-HeaderMap {
     param($Sheet, [int]$ColumnCount)
 
-    $headers = @{}
-    for ($column = 1; $column -le $ColumnCount; $column++) {
-        $header = [string]$Sheet.Cells.Item(1, $column).Text
-        if (-not [string]::IsNullOrWhiteSpace($header)) {
-            $canonicalName = ConvertTo-CanonicalColumnName $header.Trim()
-            $headers[$canonicalName] = $column
-            $Sheet.Cells.Item(1, $column).Value2 = Get-ColumnLabel $canonicalName
-        }
-    }
-
-    return $headers
+    return Get-WorksheetHeaderMap -Sheet $Sheet -ColumnCount $ColumnCount -NormalizeLabels
 }
 
 function Test-WorkbookSchemaNeedsRebuild {
