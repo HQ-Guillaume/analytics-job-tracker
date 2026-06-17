@@ -1,0 +1,425 @@
+{
+    "id":  "digital_analytics",
+    "label":  "Digital Analytics",
+    "description":  "Web and Digital Analytics roles: tracking, tagging, GA4/GTM, Piano, Contentsquare, experimentation, consent, and analytics governance.",
+    "version":  1,
+    "profile_builder":  {
+                            "target_titles":  [
+                                                  "web analyst",
+                                                  "digital analyst",
+                                                  "digital analytics consultant",
+                                                  "consultant digital analytics",
+                                                  "tracking analyst",
+                                                  "tracking specialist",
+                                                  "tracking manager",
+                                                  "expert tracking",
+                                                  "expert web analytics",
+                                                  "chef de projet web analytics",
+                                                  "consultant tracking",
+                                                  "tagging specialist",
+                                                  "web analytics consultant",
+                                                  "CRO analyst",
+                                                  "web et cro analyst",
+                                                  "analytics implementation specialist",
+                                                  "product analyst",
+                                                  "product analytics"
+                                              ],
+                            "important_skills":  [
+                                                     "Google Tag Manager",
+                                                     "GTM",
+                                                     "Google Analytics",
+                                                     "GA4",
+                                                     "Piano Analytics",
+                                                     "Contentsquare",
+                                                     "Tag Commander",
+                                                     "Commanders Act",
+                                                     "Tealium",
+                                                     "dataLayer",
+                                                     "tagging plan",
+                                                     "server-side tracking",
+                                                     "RGPD",
+                                                     "Matomo",
+                                                     "Adobe Analytics",
+                                                     "Omniture",
+                                                     "CMP",
+                                                     "cookie consent",
+                                                     "tracking plan",
+                                                     "plan de taggage",
+                                                     "SGTM",
+                                                     "server container",
+                                                     "conversion rate optimization",
+                                                     "product analytics",
+                                                     "Amplitude",
+                                                     "Mixpanel",
+                                                     "Heap"
+                                                 ],
+                            "exclusion_keywords":  [
+                                                       "SEO",
+                                                       "SEA",
+                                                       "paid media",
+                                                       "paid search",
+                                                       "paid social",
+                                                       "growth marketing",
+                                                       "traffic manager",
+                                                       "acquisition",
+                                                       "campaign manager",
+                                                       "media buyer",
+                                                       "CRM",
+                                                       "marketing automation",
+                                                       "emailing",
+                                                       "data engineer",
+                                                       "analytics engineer",
+                                                       "dbt",
+                                                       "snowflake",
+                                                       "data warehouse",
+                                                       "python",
+                                                       "business analyst",
+                                                       "business development",
+                                                       "success manager",
+                                                       "support engineer",
+                                                       "frontend",
+                                                       "javascript",
+                                                       "HR",
+                                                       "recruitment"
+                                                   ],
+                            "search_queries":  [
+                                                   "web analyst google tag manager",
+                                                   "web analyst google analytics",
+                                                   "web analyst cro google analytics",
+                                                   "digital analyst google tag manager",
+                                                   "digital analyst google analytics",
+                                                   "digital analytics consultant",
+                                                   "consultant digital analytics",
+                                                   "senior digital analytics consultant",
+                                                   "tracking analyst ga4 gtm",
+                                                   "tracking specialist ga4 gtm",
+                                                   "expert tracking",
+                                                   "expert web analytics",
+                                                   "chef de projet web analytics",
+                                                   "consultant tracking",
+                                                   "tracking analytics specialist",
+                                                   "analytics consultant google tag manager",
+                                                   "product analyst analytics",
+                                                   "product analytics",
+                                                   "cro analyst",
+                                                   "web et cro analyst",
+                                                   "analytics implementation",
+                                                   "piano analytics",
+                                                   "contentsquare analytics",
+                                                   "tag commander analytics",
+                                                   "commanders act analytics",
+                                                   "tealium analytics",
+                                                   "server side tracking",
+                                                   "rgpd analytics",
+                                                   "tagging plan analytics"
+                                               ],
+                            "target_locations":  [
+                                                     "Paris",
+                                                     "Ile-de-France",
+                                                     "remote",
+                                                     "teletravail",
+                                                     "full remote"
+                                                 ],
+                            "excluded_locations":  [
+                                                       "London",
+                                                       "New York",
+                                                       "Berlin",
+                                                       "Amsterdam",
+                                                       "Dublin",
+                                                       "Milan",
+                                                       "Casablanca",
+                                                       "Madrid",
+                                                       "Barcelona",
+                                                       "Canada",
+                                                       "United States",
+                                                       "United Kingdom"
+                                                   ],
+                            "excluded_contracts":  [
+                                                       "CDD",
+                                                       "Temporary",
+                                                       "Fixed-term",
+                                                       "Interim",
+                                                       "Mission",
+                                                       "Apprenticeship",
+                                                       "Internship",
+                                                       "Freelance"
+                                                   ],
+                            "employer_preference":  "annonceur"
+                        },
+    "sources":  {
+                    "queries":  {
+                                    "linkedin":  [
+                                                     "web analyst google tag manager",
+                                                     "web analyst google analytics",
+                                                     "digital analyst google tag manager",
+                                                     "digital analyst google analytics",
+                                                     "digital analytics consultant",
+                                                     "consultant digital analytics",
+                                                     "tracking analyst ga4 gtm",
+                                                     "tracking specialist ga4 gtm",
+                                                     "expert tracking",
+                                                     "expert web analytics",
+                                                     "chef de projet web analytics",
+                                                     "consultant tracking",
+                                                     "web analytics consultant",
+                                                     "product analyst analytics",
+                                                     "product analytics",
+                                                     "cro analyst",
+                                                     "web et cro analyst",
+                                                     "analytics implementation",
+                                                     "piano analytics",
+                                                     "contentsquare analytics",
+                                                     "tag commander analytics",
+                                                     "tealium analytics",
+                                                     "server side tracking",
+                                                     "tagging plan analytics"
+                                                 ],
+                                    "hellowork":  [
+                                                      "web analyst",
+                                                      "digital analyst",
+                                                      "expert tracking",
+                                                      "expert web analytics",
+                                                      "chef de projet web analytics",
+                                                      "consultant tracking",
+                                                      "consultant digital analytics",
+                                                      "web analytics",
+                                                      "digital analytics",
+                                                      "tracking ga4 gtm",
+                                                      "taggage ga4 gtm",
+                                                      "plan de taggage",
+                                                      "product analyst analytics",
+                                                      "product analytics",
+                                                      "cro analyst",
+                                                      "piano analytics",
+                                                      "contentsquare",
+                                                      "tag commander",
+                                                      "commanders act",
+                                                      "tealium"
+                                                  ],
+                                    "apec":  [
+                                                 "web analyst",
+                                                 "digital analyst",
+                                                 "expert tracking",
+                                                 "expert web analytics",
+                                                 "chef de projet web analytics",
+                                                 "consultant tracking",
+                                                 "consultant digital analytics",
+                                                 "web analytics",
+                                                 "digital analytics",
+                                                 "tracking ga4 gtm",
+                                                 "taggage ga4 gtm",
+                                                 "plan de taggage",
+                                                 "product analyst analytics",
+                                                 "product analytics",
+                                                 "cro analyst",
+                                                 "piano analytics",
+                                                 "contentsquare",
+                                                 "tag commander"
+                                             ],
+                                    "france_travail":  [
+                                                           "web analyst",
+                                                           "digital analyst",
+                                                           "web analytics",
+                                                           "digital analytics",
+                                                           "tracking analyst",
+                                                           "expert tracking",
+                                                           "chef de projet web analytics",
+                                                           "product analyst",
+                                                           "product analytics",
+                                                           "google analytics",
+                                                           "google tag manager",
+                                                           "plan de taggage",
+                                                           "cro analyst"
+                                                       ],
+                                    "adzuna":  [
+                                                   "web analyst",
+                                                   "digital analyst",
+                                                   "tracking analyst",
+                                                   "web analytics",
+                                                   "digital analytics",
+                                                   "expert tracking",
+                                                   "product analyst analytics",
+                                                   "product analytics",
+                                                   "cro analyst",
+                                                   "ga4 gtm",
+                                                   "google analytics",
+                                                   "google tag manager",
+                                                   "piano analytics",
+                                                   "contentsquare",
+                                                   "tag commander",
+                                                   "plan de taggage"
+                                               ],
+                                    "api":  [
+                                                "web analyst",
+                                                "digital analyst",
+                                                "web analytics",
+                                                "digital analytics",
+                                                "tracking analyst",
+                                                "tracking analytics",
+                                                "expert tracking",
+                                                "expert web analytics",
+                                                "chef de projet web analytics",
+                                                "consultant tracking",
+                                                "google analytics",
+                                                "google tag manager",
+                                                "product analyst analytics",
+                                                "product analytics",
+                                                "piano analytics",
+                                                "contentsquare",
+                                                "tag commander",
+                                                "commanders act",
+                                                "tealium",
+                                                "server side tracking",
+                                                "rgpd analytics",
+                                                "cro analyst",
+                                                "plan de taggage"
+                                            ]
+                                },
+                    "patterns":  {
+                                     "wttj_url_candidate":  "(?i)(web[-_\\s]*analyst|digital[-_\\s]*analyst|digital[-_\\s]*analytics|web[-_\\s]*analytics|product[-_\\s]*analyst|product[-_\\s]*analytics|tracking|tagging|taggage|gtm|ga4|google[-_\\s]*analytics|google[-_\\s]*tag[-_\\s]*manager|piano|contentsquare|content[-_\\s]*square|tag[-_\\s]*commander|commanders?[-_\\s]*act|tealium|cro|ab[-_\\s]*testing|a[-_\\s]b[-_\\s]*testing|amplitude|mixpanel|heap|plan[-_\\s]*de[-_\\s]*taggage|server[-_\\s]*side)"
+                                 }
+                },
+    "matching_rules":  {
+                           "feedback_profile_signal_pattern":  "web\\s+analytics|digital\\s+analytics|web\\s*analyst|digital\\s*analyst|product\\s+analyst|product\\s+analytics|tracking|tagging|taggage|webtracking|google\\s+tag\\s+manager|\\bgtm\\b|google\\s+analytics|\\bga4\\b|piano|contentsquare|content\\s+square|tag\\s+commander|commanders?\\s+act|\\btealium\\b|amplitude|mixpanel|heap|data\\s*layer|datalayer|tagging\\s+plan|tracking\\s+plan|plan\\s+de\\s+(taggage|marquage)|server\\s*[- ]?\\s*side|consent\\s+mode|\\brgpd\\b|\\bgdpr\\b|matomo|adobe\\s+analytics",
+                           "feedback_disabled_ignore_penalty_reasons":  [
+                                                                            "too_product_analytics"
+                                                                        ],
+                           "negative_signals":  {
+                                                    "marketing_only":  {
+                                                                           "keyword":  "Risk: SEO/SEA/marketing-only role",
+                                                                           "score":  -35
+                                                                       },
+                                                    "marketing_related":  {
+                                                                              "pattern":  "\\bseo\\b|\\bsea\\b|paid\\s+social|paid\\s+search|paid\\s+media|performance\\s+marketing|growth\\s+marketing|acquisition|campaign|media\\s+buyer|traffic\\s+manager|digital\\s+marketing",
+                                                                              "keyword":  "Risk: possible marketing role",
+                                                                              "score":  -18
+                                                                          },
+                                                    "seo_only_title":  {
+                                                                           "pattern":  "\\bseo\\b|\\bsea\\b|paid\\s+search|paid\\s+media|traffic\\s+manager|growth|acquisition",
+                                                                           "except_title_pattern":  "product\\s+analytics|product\\s+analyst|web\\s+analytics|digital\\s+analytics|tracking|tagging|taggage|\\bcro\\b",
+                                                                           "keyword":  "Risk: marketing/acquisition title",
+                                                                           "score":  -45
+                                                                       },
+                                                    "broad_analyst":  {
+                                                                          "pattern":  "business\\s+analyst|business\\s+development|success\\s+manager|customer\\s+success|\\bcsm\\b|support\\s+engineer|risk|finance|banking",
+                                                                          "keyword":  "Risk: broad analyst/success role",
+                                                                          "score":  -18
+                                                                      },
+                                                    "data_analyst_engineering":  {
+                                                                                     "keyword":  "Risk: data analyst/engineering role",
+                                                                                     "score":  -30
+                                                                                 },
+                                                    "warehouse_python":  {
+                                                                             "keyword":  "Risk: warehouse/python role",
+                                                                             "score":  -16
+                                                                         },
+                                                    "engineering":  {
+                                                                        "pattern":  "software\\s+engineer|data\\s+engineer|analytics?\\s+engineer|support\\s+engineer|backend|frontend|javascript|devops",
+                                                                        "keyword":  "Risk: engineering role",
+                                                                        "score":  -22
+                                                                    }
+                                                },
+                           "feedback_negative_rules":  [
+                                                           {
+                                                               "key":  "profile_exclusions",
+                                                               "pattern":  "seo|sea|paid\\s+media|growth\\s+marketing|data\\s+engineer|analytics?\\s+engineer|dbt|snowflake|data\\s+warehouse|python|business\\s+analyst|recruitment",
+                                                               "label":  "feedback ignored: profile exclusions",
+                                                               "max":  14
+                                                           },
+                                                           {
+                                                               "key":  "too_seo_sea_marketing",
+                                                               "pattern":  "\\bseo\\b|\\bsea\\b|paid\\s+social|paid\\s+search|paid\\s+media|performance\\s+marketing|growth\\s+marketing|acquisition|campaign|media\\s+buyer",
+                                                               "label":  "feedback ignored: SEO/SEA/marketing",
+                                                               "max":  14
+                                                           },
+                                                           {
+                                                               "key":  "too_data_analyst",
+                                                               "pattern":  "\\bdata\\s*analyst\\b|analyste\\s+de\\s+donnees|\\bpython\\b|\\bsql\\b|notebook|data\\s+warehouse|business\\s+analyst",
+                                                               "label":  "feedback ignored: data analyst",
+                                                               "max":  12
+                                                           },
+                                                           {
+                                                               "key":  "too_data_engineering",
+                                                               "pattern":  "data\\s+engineer|analytics?\\s+engineer|\\bdbt\\b|snowflake|airflow|\\betl\\b|\\belt\\b|data\\s+warehouse|datawarehouse|data\\s+platform|databricks|pyspark|spark|pipeline|backend|devops",
+                                                               "label":  "feedback ignored: data engineering",
+                                                               "max":  16
+                                                           },
+                                                           {
+                                                               "key":  "too_bi_reporting",
+                                                               "pattern":  "\\bbi\\b|business\\s+intelligence|power\\s*bi|tableau|dashboard|reporting|looker|data\\s+studio|tableau\\s+de\\s+bord",
+                                                               "label":  "feedback ignored: BI/reporting",
+                                                               "max":  10
+                                                           },
+                                                           {
+                                                               "key":  "too_crm_emailing",
+                                                               "pattern":  "\\bcrm\\b|emailing|email\\s+marketing|marketing\\s+automation|salesforce|hubspot|braze|batch|campaign",
+                                                               "label":  "feedback ignored: CRM/emailing",
+                                                               "max":  12
+                                                           },
+                                                           {
+                                                               "key":  "too_content_social",
+                                                               "pattern":  "content\\s+marketing|social\\s+media|community\\s+manager|editorial|copywriting|seo\\s+content",
+                                                               "label":  "feedback ignored: content/social",
+                                                               "max":  12
+                                                           },
+                                                           {
+                                                               "key":  "too_managerial",
+                                                               "pattern":  "\\bhead\\b|director|directeur|directrice|lead|manager|responsable|principal",
+                                                               "label":  "feedback ignored: managerial",
+                                                               "max":  8
+                                                           },
+                                                           {
+                                                               "key":  "agency_consulting_esn",
+                                                               "pattern":  "consultant|consulting|cabinet|agence|agency|\\besn\\b|ssii",
+                                                               "label":  "feedback ignored: agency/consulting/ESN",
+                                                               "max":  8
+                                                           }
+                                                       ]
+                       },
+    "preferences":  {
+                        "employer_type_weights":  {
+                                                      "annonceur":  12,
+                                                      "agency":  -10,
+                                                      "consulting":  -10,
+                                                      "esn":  -12,
+                                                      "unknown":  -2
+                                                  },
+                        "location_fit_weights":  {
+                                                     "target":  10,
+                                                     "france_other":  -10,
+                                                     "foreign":  -35,
+                                                     "unknown":  -2
+                                                 },
+                        "seniority_fit_weights":  {
+                                                      "target":  0,
+                                                      "senior_ok":  0,
+                                                      "too_junior":  -15,
+                                                      "too_managerial":  -18,
+                                                      "unknown":  0
+                                                  }
+                    },
+    "workbook":  {
+                     "ignore_reason_options":  [
+                                                   "ignore_reason=not_analytics_enough; detail=",
+                                                   "ignore_reason=too_seo_sea_marketing; detail=",
+                                                   "ignore_reason=too_data_analyst; detail=",
+                                                   "ignore_reason=too_data_engineering; detail=",
+                                                   "ignore_reason=too_bi_reporting; detail=",
+                                                   "ignore_reason=too_crm_emailing; detail=",
+                                                   "ignore_reason=too_content_social; detail=",
+                                                   "ignore_reason=too_managerial; detail=",
+                                                   "ignore_reason=agency_consulting_esn; detail=",
+                                                   "ignore_reason=wrong_seniority; detail=",
+                                                   "ignore_reason=wrong_location; detail=",
+                                                   "ignore_reason=wrong_remote_policy; detail=",
+                                                   "ignore_reason=wrong_contract; detail=",
+                                                   "ignore_reason=language_issue; detail=",
+                                                   "ignore_reason=salary_issue; detail=",
+                                                   "ignore_reason=company_not_interested; detail=",
+                                                   "ignore_reason=industry_not_interested; detail=",
+                                                   "ignore_reason=duplicate; detail=",
+                                                   "ignore_reason=low_quality_posting; detail=",
+                                                   "ignore_reason=other; detail="
+                                               ]
+                 }
+}

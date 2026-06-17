@@ -11,40 +11,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Parse PowerShell scripts
+      - name: Run no-Excel test suite
         shell: pwsh
-        run: |
-          $files = Get-ChildItem -Path . -Filter *.ps1 -File
-          $files += Get-ChildItem -Path ./app -Filter *.ps1 -File -Recurse
-          $files += Get-ChildItem -Path ./dev-tools -Filter *.ps1 -File -Recurse
-          foreach ($file in $files) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) {
-              Write-Error "Parse errors in $($file.Name): $($errors | ForEach-Object { $_.Message } | Out-String)"
-            }
-            else {
-              Write-Host "OK $($file.Name)"
-            }
-          }
-
-      - name: Run no-Excel scoring tests
-        shell: pwsh
-        run: ./dev-tools/Test-ScoringRules.ps1
-
-      - name: Run parser fixture tests
-        shell: pwsh
-        run: ./dev-tools/Test-ParserFixtures.ps1
-
-      - name: Run integration tests
-        shell: pwsh
-        run: ./dev-tools/Test-Integration.ps1
-
-      - name: Validate crawler config
-        shell: pwsh
-        run: ./dev-tools/Test-JobCrawlerConfig.ps1
-
-      - name: Run release safety check
-        shell: pwsh
-        run: ./dev-tools/Test-ReleaseSafety.ps1
+        run: ./tools/tests/Run-AllTests.ps1

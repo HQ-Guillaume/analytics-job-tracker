@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Get-AdzunaContractType {
     param([AllowNull()]$Job)
 
@@ -53,15 +51,16 @@ function Get-AdzunaJobs {
         return @()
     }
 
-    Set-RunWindowTitle "Analytics Job Crawler - Adzuna"
+    Set-RunWindowTitle "Job Crawler - Adzuna"
     Write-RunStatus "Collecting Adzuna jobs through the official API..."
+    Write-RunStatus ("Adzuna plan: {0} query/queries, up to {1} page(s) each." -f $AdzunaQueries.Count, $MaxAdzunaPages)
     $stats = Start-SourceStats "Adzuna"
     $results = New-Object System.Collections.Generic.List[object]
     $queryIndex = 0
 
-    foreach ($query in $ApiSearchQueries) {
+    foreach ($query in $AdzunaQueries) {
         $queryIndex++
-        Write-RunStatus ("Adzuna query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        Write-RunStatus ("Adzuna query {0}/{1}: {2}" -f $queryIndex, $AdzunaQueries.Count, $query)
         for ($page = 1; $page -le $MaxAdzunaPages; $page++) {
             $params = @{
                 app_id           = $AdzunaAppId
@@ -128,7 +127,7 @@ function Get-AdzunaJobs {
                 }
             }
 
-            Write-CountProgress -Activity ("Adzuna query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current $page -Total $MaxAdzunaPages -Found $results.Count -Every 1
+            Write-CountProgress -Activity ("Adzuna query {0}/{1}" -f $queryIndex, $AdzunaQueries.Count) -Current $page -Total $MaxAdzunaPages -Found $results.Count -Every 1
             Start-Sleep -Milliseconds $AdzunaDelayMilliseconds
         }
     }

@@ -7,5 +7,9 @@
 
 /output/** export-ignore
 /dist/** export-ignore
+/tools/** export-ignore
+/.github/** export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
 /config/local*.json export-ignore
 /config/local/** export-ignore

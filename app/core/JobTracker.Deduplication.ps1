@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function ConvertTo-IdentityText {
     param(
         [AllowNull()][string]$Text,
@@ -701,6 +699,8 @@ function Merge-JobsWithTracker {
     }
 
     $trackerByKey = @{}
+    $currentTrackerRows = New-Object System.Collections.Generic.List[object]
+    $removedCount = 0
     foreach ($key in $currentByKey.Keys) {
         $existing = $null
         if ($existingByKey.ContainsKey($key)) {
@@ -712,10 +712,21 @@ function Merge-JobsWithTracker {
         if (-not [string]::IsNullOrWhiteSpace($currentDuplicateReason)) {
             $duplicateReason = Join-CleanTextParts @($duplicateReason, $currentDuplicateReason)
         }
-        $trackerByKey[$key] = ConvertTo-TrackerRecord -CurrentRow $currentByKey[$key] -ExistingRow $existing -SeenInCurrentCrawl:$true -DuplicateReason $duplicateReason
+        $trackerRecord = ConvertTo-TrackerRecord -CurrentRow $currentByKey[$key] -ExistingRow $existing -SeenInCurrentCrawl:$true -DuplicateReason $duplicateReason
+        $trackerStatus = Get-RowValue -Row $trackerRecord -Name "status"
+        $trackerContract = Get-RowValue -Row $trackerRecord -Name "contract_type"
+        $currentContract = Get-RowValue -Row $currentByKey[$key] -Name "contract_type"
+        $existingContract = Get-RowValue -Row $existing -Name "contract_type"
+        $hasExcludedContract = (Test-IsExcludedContractType $trackerContract) -or
+            ([string]::IsNullOrWhiteSpace($currentContract) -and (Test-IsExcludedContractType $existingContract))
+
+        if ((Test-IsKeepForeverStatus $trackerStatus) -or
+            ((Test-IsRecentTrackerRow $trackerRecord) -and -not $hasExcludedContract)) {
+            $trackerByKey[$key] = $trackerRecord
+            $currentTrackerRows.Add($trackerRecord) | Out-Null
+        }
     }
 
-    $removedCount = 0
     $preservedAppliedCount = 0
     foreach ($key in $existingByKey.Keys) {
         if ($trackerByKey.ContainsKey($key)) {
@@ -756,7 +767,7 @@ function Merge-JobsWithTracker {
 
     return @{
         TrackerRows = @($trackerRows)
-        CurrentRows = @($currentByKey.Values)
+        CurrentRows = @($currentTrackerRows.ToArray())
         RemovedCount = $removedCount
         DuplicateCount = $duplicateCount
         PreservedAppliedCount = $preservedAppliedCount

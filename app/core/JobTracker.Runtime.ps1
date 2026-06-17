@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Repair-DisplayText {
     param([AllowNull()][string]$Text)
 
@@ -170,24 +168,6 @@ function Add-SourceMetric {
     }
 
     $Stats[$Name] = [int]$Stats[$Name] + $Amount
-}
-
-function Set-SourceNote {
-    param(
-        [AllowNull()]$Stats,
-        [AllowNull()][string]$Note
-    )
-
-    if ($null -eq $Stats -or [string]::IsNullOrWhiteSpace($Note)) {
-        return
-    }
-
-    if ([string]::IsNullOrWhiteSpace([string]$Stats["Notes"])) {
-        $Stats["Notes"] = $Note
-    }
-    else {
-        $Stats["Notes"] = "{0}; {1}" -f $Stats["Notes"], $Note
-    }
 }
 
 function Complete-SourceStats {
@@ -382,6 +362,7 @@ function Write-RunHistoryEntry {
         run_stamp = $RunStamp
         run_date = $RunDate
         created_at = ([DateTimeOffset]::Now.ToString("o"))
+        profile = $(if ($Summary.ContainsKey("Profile")) { $Summary.Profile } else { "" })
         crawl_mode = $CrawlMode
         dry_run = $Summary.DryRun
         diagnostic_mode = $Summary.DiagnosticMode

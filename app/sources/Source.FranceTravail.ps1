@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Get-FranceTravailAccessToken {
     if ([string]::IsNullOrWhiteSpace($FranceTravailClientId) -or [string]::IsNullOrWhiteSpace($FranceTravailClientSecret)) {
         Write-RunStatus "France Travail credentials not set; skipping France Travail source. Set FRANCE_TRAVAIL_CLIENT_ID and FRANCE_TRAVAIL_CLIENT_SECRET to enable it."
@@ -126,8 +124,9 @@ function Get-FranceTravailJobs {
         return @()
     }
 
-    Set-RunWindowTitle "Analytics Job Crawler - France Travail"
+    Set-RunWindowTitle "Job Crawler - France Travail"
     Write-RunStatus "Collecting France Travail jobs through the official API..."
+    Write-RunStatus ("France Travail plan: {0} query/queries, up to {1} page(s) each." -f $FranceTravailQueries.Count, $MaxFranceTravailPages)
     $stats = Start-SourceStats "France Travail"
     $results = New-Object System.Collections.Generic.List[object]
     $headers = @{
@@ -138,9 +137,9 @@ function Get-FranceTravailJobs {
     $pageSize = 150
     $queryIndex = 0
 
-    foreach ($query in $ApiSearchQueries) {
+    foreach ($query in $FranceTravailQueries) {
         $queryIndex++
-        Write-RunStatus ("France Travail query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        Write-RunStatus ("France Travail query {0}/{1}: {2}" -f $queryIndex, $FranceTravailQueries.Count, $query)
         for ($page = 0; $page -lt $MaxFranceTravailPages; $page++) {
             $rangeStart = $page * $pageSize
             $rangeEnd = $rangeStart + $pageSize - 1
@@ -211,7 +210,7 @@ function Get-FranceTravailJobs {
                 }
             }
 
-            Write-CountProgress -Activity ("France Travail query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current ($page + 1) -Total $MaxFranceTravailPages -Found $results.Count -Every 1
+            Write-CountProgress -Activity ("France Travail query {0}/{1}" -f $queryIndex, $FranceTravailQueries.Count) -Current ($page + 1) -Total $MaxFranceTravailPages -Found $results.Count -Every 1
             if ($jobArray.Count -lt $pageSize) {
                 break
             }

@@ -7,7 +7,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
-    $ProjectRoot = Split-Path -Parent $PSScriptRoot
+    $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 }
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $issues = New-Object System.Collections.Generic.List[string]

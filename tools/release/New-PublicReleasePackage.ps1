@@ -9,7 +9,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
-    $ProjectRoot = Split-Path -Parent $PSScriptRoot
+    $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 }
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 & (Join-Path $PSScriptRoot "Test-ReleaseSafety.ps1") -ProjectRoot $resolvedRoot
@@ -24,12 +24,12 @@ if ([string]::IsNullOrWhiteSpace($safeVersion)) {
     throw "Version cannot be empty."
 }
 
-$packagePath = Join-Path $distDirectory ("analytics-job-tracker-{0}.zip" -f $safeVersion)
+$packagePath = Join-Path $distDirectory ("custom-job-tracker-{0}.zip" -f $safeVersion)
 if (Test-Path -LiteralPath $packagePath) {
     Remove-Item -LiteralPath $packagePath -Force
 }
 
-git -C $resolvedRoot archive --format zip --output $packagePath HEAD
+git -C $resolvedRoot archive --format zip --worktree-attributes --output $packagePath HEAD
 if ($LASTEXITCODE -ne 0) {
     throw "git archive failed."
 }

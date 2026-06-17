@@ -1,42 +1,21 @@
-{
-  "status_options": [
-    "new",
-    "interesting",
-    "ignored",
-    "applied",
-    "interview",
-    "offer",
-    "rejected",
-    "withdrawn"
-  ],
-  "ignore_reason_options": [
-    "ignore_reason=not_analytics_enough; detail=",
-    "ignore_reason=too_seo_sea_marketing; detail=",
-    "ignore_reason=too_data_analyst; detail=",
-    "ignore_reason=too_data_engineering; detail=",
-    "ignore_reason=too_bi_reporting; detail=",
-    "ignore_reason=too_crm_emailing; detail=",
-    "ignore_reason=too_content_social; detail=",
-    "ignore_reason=too_product_analytics; detail=",
-    "ignore_reason=too_managerial; detail=",
-    "ignore_reason=agency_consulting_esn; detail=",
-    "ignore_reason=wrong_seniority; detail=",
-    "ignore_reason=wrong_location; detail=",
-    "ignore_reason=wrong_remote_policy; detail=",
-    "ignore_reason=wrong_contract; detail=",
-    "ignore_reason=language_issue; detail=",
-    "ignore_reason=salary_issue; detail=",
-    "ignore_reason=company_not_interested; detail=",
-    "ignore_reason=industry_not_interested; detail=",
-    "ignore_reason=duplicate; detail=",
-    "ignore_reason=low_quality_posting; detail=",
-    "ignore_reason=other; detail="
-  ],
-  "sheets": {
-    "jobs": "Jobs",
-    "summary": "Summary",
-    "settings": "Settings",
-    "source_health": "Source Health",
-    "feedback_quality": "Feedback Quality"
-  }
+﻿{
+    "output_backend":  "auto",
+    "html_fallback_enabled":  true,
+    "status_options":  [
+                           "new",
+                           "interesting",
+                           "ignored",
+                           "applied",
+                           "interview",
+                           "offer",
+                           "rejected",
+                           "withdrawn"
+                       ],
+    "sheets":  {
+                   "jobs":  "Jobs",
+                   "summary":  "Summary",
+                   "settings":  "Settings",
+                   "source_health":  "Source Health",
+                   "feedback_quality":  "Feedback Quality"
+               }
 }

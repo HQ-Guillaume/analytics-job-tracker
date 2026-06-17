@@ -1,21 +1,25 @@
 [CmdletBinding()]
 param(
     [string]$TrackerPath = "",
-    [string]$ConfigDirectory = "config"
+    [string]$ConfigDirectory = "config",
+    [string]$Profile = ""
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "JobTracker.Common.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Config.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Runtime.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Scoring.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Deduplication.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Excel.ps1")
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$CoreRoot = Join-Path $ProjectRoot "app\core"
 
-$configPath = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path $ConfigDirectory
-$JobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath
+. (Join-Path $CoreRoot "JobTracker.Common.ps1")
+. (Join-Path $CoreRoot "JobTracker.Config.ps1")
+. (Join-Path $CoreRoot "JobTracker.Runtime.ps1")
+. (Join-Path $CoreRoot "JobTracker.Scoring.ps1")
+. (Join-Path $CoreRoot "JobTracker.Deduplication.ps1")
+. (Join-Path $CoreRoot "JobTracker.Excel.ps1")
+
+$configPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path $ConfigDirectory
+$JobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath -ProfileId $Profile
 $JobCrawlerRuntimeConfig = $JobCrawlerConfig.Runtime
 $JobCrawlerSourcesConfig = $JobCrawlerConfig.Sources
 $JobCrawlerMatchingRules = $JobCrawlerConfig.MatchingRules
@@ -27,7 +31,7 @@ if (-not $validation.IsValid) {
 }
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
+    $TrackerPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
 }
 if (-not (Test-Path -LiteralPath $TrackerPath)) {
     throw "Tracker workbook not found: $TrackerPath"
@@ -40,10 +44,14 @@ $Cutoff = [DateTimeOffset]::Now.AddDays(-[Math]::Abs($DaysBack))
 $CutoffDate = $Cutoff.ToString("yyyy-MM-dd")
 $CrawlMode = [string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.crawl_mode" -DefaultValue "Default")
 $Location = [string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.location" -DefaultValue "France")
-$CacheDirectory = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_directory" -DefaultValue "output\cache"))
+$CacheDirectory = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_directory" -DefaultValue "output\cache"))
 $CacheTtlHours = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_ttl_hours" -DefaultValue 24)
 $MinimumMatchScore = [int](Get-ConfigPathValue -Object $JobCrawlerMatchingRules -Path "thresholds.minimum_match_score" -DefaultValue 35)
-$LinkedInQueries = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $JobCrawlerSourcesConfig -Path "queries.linkedin" -DefaultValue @()))
+$LinkedInQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "linkedin" -FallbackKeys @("api"))
+$HelloWorkQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "hellowork" -FallbackKeys @("api"))
+$ApecQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "apec" -FallbackKeys @("api"))
+$FranceTravailQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "france_travail" -FallbackKeys @("api"))
+$AdzunaQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "adzuna" -FallbackKeys @("api"))
 $ApiSearchQueries = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $JobCrawlerSourcesConfig -Path "queries.api" -DefaultValue @()))
 $SourceRunStats = New-Object System.Collections.Generic.List[object]
 $JobCrawlerPreferences = Get-JobCrawlerPreferences
@@ -52,6 +60,7 @@ $ColumnLabels = Get-JobTrackerColumnLabels
 
 $rows = @(Import-TrackerRows -Path $TrackerPath)
 $summary = @{
+    Profile = ("{0} ({1})" -f $JobCrawlerConfig.Profile.Label, $JobCrawlerConfig.Profile.Id)
     TotalMatched = @($rows).Count
     ExcludedContractCount = 0
     CurrentCount = @($rows | Where-Object { (Get-RowValue -Row $_ -Name "seen_in_current_crawl") -eq "yes" }).Count

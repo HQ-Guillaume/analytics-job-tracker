@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Get-HelloWorkSearchUrl {
     param(
         [string]$Query,
@@ -220,18 +218,18 @@ function Get-HelloWorkCardCandidates {
 }
 
 function Get-HelloWorkJobs {
-    Set-RunWindowTitle "Analytics Job Crawler - HelloWork"
+    Set-RunWindowTitle "Job Crawler - HelloWork"
     Write-RunStatus "Collecting HelloWork jobs from public search pages..."
-    Write-RunStatus ("HelloWork plan: {0} query/queries, {1} page(s) each, then at most {2} unique detail page(s)." -f $ApiSearchQueries.Count, $MaxHelloWorkPages, $MaxHelloWorkDetails)
+    Write-RunStatus ("HelloWork plan: {0} query/queries, {1} page(s) each, then at most {2} unique detail page(s)." -f $HelloWorkQueries.Count, $MaxHelloWorkPages, $MaxHelloWorkDetails)
 
     $stats = Start-SourceStats "HelloWork"
     $results = New-Object System.Collections.Generic.List[object]
     $candidateByUrl = @{}
     $queryIndex = 0
 
-    foreach ($query in $ApiSearchQueries) {
+    foreach ($query in $HelloWorkQueries) {
         $queryIndex++
-        Write-RunStatus ("HelloWork query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        Write-RunStatus ("HelloWork query {0}/{1}: {2}" -f $queryIndex, $HelloWorkQueries.Count, $query)
         for ($page = 1; $page -le $MaxHelloWorkPages; $page++) {
             $searchUrl = Get-HelloWorkSearchUrl -Query $query -Page $page
             try {
@@ -251,7 +249,7 @@ function Get-HelloWorkJobs {
                 }
             }
 
-            Write-CountProgress -Activity ("HelloWork search query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current $page -Total $MaxHelloWorkPages -Found $candidateByUrl.Count -Every 1
+            Write-CountProgress -Activity ("HelloWork search query {0}/{1}" -f $queryIndex, $HelloWorkQueries.Count) -Current $page -Total $MaxHelloWorkPages -Found $candidateByUrl.Count -Every 1
             if ($candidates.Count -eq 0) {
                 break
             }

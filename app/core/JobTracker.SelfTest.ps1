@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Assert-ScoringCondition {
     param(
         [bool]$Condition,
@@ -24,6 +22,7 @@ function Invoke-ScoringSelfTest {
     $oemMojibakeLocation = "CDI " + [string][char]0x251C + [string][char]0x00E1 + " Paris"
     $expectedLocation = "CDI " + [string][char]0x00E0 + " Paris"
     Assert-ScoringCondition -Condition ((Repair-DisplayText $oemMojibakeLocation) -eq $expectedLocation) -Message "Expected OEM mojibake to be repaired with French accents."
+    Assert-ScoringCondition -Condition (Test-IsExcludedContractType "CDD") -Message "Expected CDD contracts to be excluded."
     Assert-ScoringCondition -Condition (Test-IsExcludedContractType "Freelance") -Message "Expected freelance contracts to be excluded."
 
     $annonceurMatch = Get-JobMatch -Title "Web Analyst CRO" -Text "Google Tag Manager GA4 ContentSquare dataLayer tagging plan"
@@ -42,9 +41,9 @@ function Invoke-ScoringSelfTest {
         notes     = "ignore_reason=too_seo_sea_marketing; detail=too marketing"
     }
     $script:FeedbackLearningProfile = New-FeedbackLearningProfile -Rows @($positiveFeedbackRow, $ignoredFeedbackRow)
-    $positiveLearning = Get-FeedbackLearningAdjustment -FullText "tealium server side tracking" -HasCoreTitleSignal:$true -HasWebAnalyticsToolSignal:$true -HasDigitalAnalyticsContext:$true
+    $positiveLearning = Get-FeedbackLearningAdjustment -FullText "tealium server side tracking" -HasCoreTitleSignal:$true -HasProfileSkillSignal:$true -HasProfileContext:$true
     Assert-ScoringCondition -Condition ([int]$positiveLearning.Adjustment -gt 0 -and (($positiveLearning.Reasons -join ";") -match "Tealium")) -Message "Expected positive saved tracker feedback to boost similar tool signals."
-    $negativeLearning = Get-FeedbackLearningAdjustment -FullText "seo sea paid media campaign" -HasCoreTitleSignal:$false -HasWebAnalyticsToolSignal:$false -HasDigitalAnalyticsContext:$false
+    $negativeLearning = Get-FeedbackLearningAdjustment -FullText "seo sea paid media campaign" -HasCoreTitleSignal:$false -HasProfileSkillSignal:$false -HasProfileContext:$false
     Assert-ScoringCondition -Condition ([int]$negativeLearning.Adjustment -lt 0 -and (($negativeLearning.Reasons -join ";") -match "SEO/SEA")) -Message "Expected ignored saved tracker feedback to penalize similar marketing-only signals."
     $script:FeedbackLearningProfile = $null
     $annonceurResult = New-JobResult `

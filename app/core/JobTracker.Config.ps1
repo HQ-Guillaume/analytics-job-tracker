@@ -1,6 +1,11 @@
 # Configuration helpers for the crawler. Values that may reasonably change over
 # time live in config/*.json; structural workbook internals stay in code.
 
+$profileModulePath = Join-Path $PSScriptRoot "JobTracker.Profile.ps1"
+if (Test-Path -LiteralPath $profileModulePath) {
+    . $profileModulePath
+}
+
 function Read-JobCrawlerJsonConfig {
     param(
         [string]$Path,
@@ -29,11 +34,13 @@ function Get-ConfigProperty {
     if ($null -eq $Object) {
         return $DefaultValue
     }
-    if ($Object -is [hashtable] -and $Object.ContainsKey($Name)) {
+    if ($Object -is [System.Collections.IDictionary] -and $Object.Contains($Name)) {
         return $Object[$Name]
     }
-    if ($Object.PSObject.Properties.Name -contains $Name) {
-        return $Object.$Name
+    foreach ($property in @($Object.PSObject.Properties)) {
+        if ($property.Name -eq $Name) {
+            return $property.Value
+        }
     }
 
     return $DefaultValue
@@ -74,6 +81,19 @@ function Get-ConfigStringArray {
     }
 
     return @($Value | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Get-ConfigPropertyNames {
+    param([AllowNull()]$Object)
+
+    if ($null -eq $Object) {
+        return @()
+    }
+    if ($Object -is [System.Collections.IDictionary]) {
+        return @($Object.Keys | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+
+    return @($Object.PSObject.Properties | ForEach-Object { [string]$_.Name } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
 function Resolve-JobCrawlerPath {
@@ -173,15 +193,25 @@ function Merge-JobCrawlerConfigObjects {
     return ($merged | ConvertTo-Json -Depth 100 | ConvertFrom-Json)
 }
 
-function Read-JobCrawlerLayeredConfig {
+function Read-JobCrawlerPublicConfig {
     param(
         [string]$Root,
         [string]$Name,
-        [AllowNull()]$DefaultValue = $null,
+        [AllowNull()]$DefaultValue = $null
+    )
+
+    return Read-JobCrawlerJsonConfig -Path (Join-Path $Root ("{0}.json" -f $Name)) -DefaultValue $DefaultValue
+}
+
+function Merge-JobCrawlerLocalConfig {
+    param(
+        [string]$Root,
+        [string]$Name,
+        [AllowNull()]$Value,
         [System.Collections.Generic.List[string]]$AppliedOverrides
     )
 
-    $value = Read-JobCrawlerJsonConfig -Path (Join-Path $Root ("{0}.json" -f $Name)) -DefaultValue $DefaultValue
+    $mergedValue = $Value
     $overridePaths = @(
         (Join-Path $Root ("local.{0}.json" -f $Name)),
         (Join-Path (Join-Path $Root "local") ("{0}.json" -f $Name))
@@ -190,18 +220,127 @@ function Read-JobCrawlerLayeredConfig {
     foreach ($overridePath in $overridePaths) {
         if (Test-Path -LiteralPath $overridePath) {
             $overrideValue = Read-JobCrawlerJsonConfig -Path $overridePath -DefaultValue ([PSCustomObject]@{})
-            $value = Merge-JobCrawlerConfigObjects -Base $value -Override $overrideValue
-            if ($null -ne $AppliedOverrides) {
+            $mergedValue = Merge-JobCrawlerConfigObjects -Base $mergedValue -Override $overrideValue
+            if ($null -ne $AppliedOverrides -and -not $AppliedOverrides.Contains($overridePath)) {
                 $AppliedOverrides.Add($overridePath) | Out-Null
             }
         }
     }
 
-    return $value
+    return $mergedValue
+}
+
+function Get-JobCrawlerProfileDirectories {
+    param([string]$Root)
+
+    return @(
+        [PSCustomObject]@{ Path = (Join-Path $Root "profiles"); IsLocal = $false },
+        [PSCustomObject]@{ Path = (Join-Path (Join-Path $Root "local") "profiles"); IsLocal = $true }
+    )
+}
+
+function Get-JobCrawlerProfileSummaries {
+    param([string]$ConfigDirectory)
+
+    $configRoot = Resolve-Path -LiteralPath $ConfigDirectory -ErrorAction SilentlyContinue
+    if ($null -eq $configRoot) {
+        return @()
+    }
+
+    $profilesById = [ordered]@{}
+    foreach ($directory in @(Get-JobCrawlerProfileDirectories -Root $configRoot.Path)) {
+        if (-not (Test-Path -LiteralPath $directory.Path)) {
+            continue
+        }
+
+        foreach ($file in @(Get-ChildItem -LiteralPath $directory.Path -Filter "*.json" -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+            $profile = Read-JobCrawlerJsonConfig -Path $file.FullName -DefaultValue $null
+            if ($null -eq $profile) {
+                continue
+            }
+
+            $id = [string](Get-ConfigProperty -Object $profile -Name "id" -DefaultValue ([IO.Path]::GetFileNameWithoutExtension($file.Name)))
+            $id = ConvertTo-JobCrawlerProfileId $id
+            if ([string]::IsNullOrWhiteSpace($id)) {
+                continue
+            }
+
+            $label = [string](Get-ConfigProperty -Object $profile -Name "label" -DefaultValue $id)
+            $description = [string](Get-ConfigProperty -Object $profile -Name "description" -DefaultValue "")
+            $existing = $null
+            if ($profilesById.Contains($id)) {
+                $existing = $profilesById[$id]
+            }
+
+            $profilesById[$id] = [PSCustomObject]@{
+                Id          = $id
+                Label       = $label
+                Description = $description
+                Path        = $file.FullName
+                IsLocal     = [bool]$directory.IsLocal
+                HasPublic   = ($null -ne $existing -and [bool]$existing.HasPublic) -or (-not [bool]$directory.IsLocal)
+                HasLocal    = ($null -ne $existing -and [bool]$existing.HasLocal) -or [bool]$directory.IsLocal
+                Display     = ("{0} ({1})" -f $label, $id)
+            }
+        }
+    }
+
+    return @($profilesById.Values)
+}
+
+function Read-JobCrawlerProfile {
+    param(
+        [string]$Root,
+        [string]$ProfileId,
+        [System.Collections.Generic.List[string]]$AppliedOverrides
+    )
+
+    $selectedId = ConvertTo-JobCrawlerProfileId $ProfileId
+    if ([string]::IsNullOrWhiteSpace($selectedId)) {
+        return $null
+    }
+
+    $profile = $null
+    foreach ($directory in @(Get-JobCrawlerProfileDirectories -Root $Root)) {
+        $path = Join-Path $directory.Path ("{0}.json" -f $selectedId)
+        if (-not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        $profileValue = Read-JobCrawlerJsonConfig -Path $path -DefaultValue ([PSCustomObject]@{})
+        $profile = Merge-JobCrawlerConfigObjects -Base $profile -Override $profileValue
+        if ([bool]$directory.IsLocal -and $null -ne $AppliedOverrides -and -not $AppliedOverrides.Contains($path)) {
+            $AppliedOverrides.Add($path) | Out-Null
+        }
+    }
+
+    if ($null -ne $profile) {
+        $profile = Expand-JobCrawlerProfile -Profile $profile
+    }
+
+    return $profile
+}
+
+function Merge-JobCrawlerProfileSection {
+    param(
+        [AllowNull()]$Base,
+        [AllowNull()]$Profile,
+        [string]$SectionName
+    )
+
+    $profileSection = Get-ConfigProperty -Object $Profile -Name $SectionName -DefaultValue $null
+    if ($null -eq $profileSection) {
+        return $Base
+    }
+
+    return Merge-JobCrawlerConfigObjects -Base $Base -Override $profileSection
 }
 
 function Get-JobCrawlerConfig {
-    param([string]$ConfigDirectory)
+    param(
+        [string]$ConfigDirectory,
+        [string]$ProfileId = ""
+    )
 
     $configRoot = Resolve-Path -LiteralPath $ConfigDirectory -ErrorAction SilentlyContinue
     if ($null -eq $configRoot) {
@@ -210,16 +349,51 @@ function Get-JobCrawlerConfig {
 
     $root = $configRoot.Path
     $appliedOverrides = New-Object System.Collections.Generic.List[string]
-    $runtimeConfig = Read-JobCrawlerLayeredConfig -Root $root -Name "runtime" -DefaultValue ([PSCustomObject]@{}) -AppliedOverrides $appliedOverrides
-    $crawlModesConfig = Read-JobCrawlerLayeredConfig -Root $root -Name "crawl_modes" -DefaultValue ([PSCustomObject]@{}) -AppliedOverrides $appliedOverrides
-    $sourcesConfig = Read-JobCrawlerLayeredConfig -Root $root -Name "sources" -DefaultValue ([PSCustomObject]@{}) -AppliedOverrides $appliedOverrides
-    $matchingRulesConfig = Read-JobCrawlerLayeredConfig -Root $root -Name "matching_rules" -DefaultValue ([PSCustomObject]@{}) -AppliedOverrides $appliedOverrides
-    $workbookConfig = Read-JobCrawlerLayeredConfig -Root $root -Name "workbook" -DefaultValue ([PSCustomObject]@{}) -AppliedOverrides $appliedOverrides
-    $preferencesConfig = Read-JobCrawlerLayeredConfig -Root $root -Name "preferences" -DefaultValue ([PSCustomObject]@{}) -AppliedOverrides $appliedOverrides
+
+    $runtimeBase = Read-JobCrawlerPublicConfig -Root $root -Name "runtime" -DefaultValue ([PSCustomObject]@{})
+    $crawlModesBase = Read-JobCrawlerPublicConfig -Root $root -Name "crawl_modes" -DefaultValue ([PSCustomObject]@{})
+    $sourcesBase = Read-JobCrawlerPublicConfig -Root $root -Name "sources" -DefaultValue ([PSCustomObject]@{})
+    $matchingRulesBase = Read-JobCrawlerPublicConfig -Root $root -Name "matching_rules" -DefaultValue ([PSCustomObject]@{})
+    $workbookBase = Read-JobCrawlerPublicConfig -Root $root -Name "workbook" -DefaultValue ([PSCustomObject]@{})
+    $preferencesBase = Read-JobCrawlerPublicConfig -Root $root -Name "preferences" -DefaultValue ([PSCustomObject]@{})
+
+    $runtimeForProfileSelection = Merge-JobCrawlerLocalConfig -Root $root -Name "runtime" -Value $runtimeBase -AppliedOverrides $null
+    $selectedProfileId = ConvertTo-JobCrawlerProfileId $ProfileId
+    if ([string]::IsNullOrWhiteSpace($selectedProfileId)) {
+        $selectedProfileId = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigPathValue -Object $runtimeForProfileSelection -Path "defaults.profile_id" -DefaultValue "digital_analytics"))
+    }
+    if ([string]::IsNullOrWhiteSpace($selectedProfileId)) {
+        $selectedProfileId = "digital_analytics"
+    }
+
+    $profile = Read-JobCrawlerProfile -Root $root -ProfileId $selectedProfileId -AppliedOverrides $appliedOverrides
+    if ($null -eq $profile) {
+        throw "Job crawler profile '$selectedProfileId' was not found. Create it in config\profiles or config\local\profiles."
+    }
+
+    $runtimeConfig = Merge-JobCrawlerProfileSection -Base $runtimeBase -Profile $profile -SectionName "runtime"
+    $crawlModesConfig = Merge-JobCrawlerProfileSection -Base $crawlModesBase -Profile $profile -SectionName "crawl_modes"
+    $sourcesConfig = Merge-JobCrawlerProfileSection -Base $sourcesBase -Profile $profile -SectionName "sources"
+    $matchingRulesConfig = Merge-JobCrawlerProfileSection -Base $matchingRulesBase -Profile $profile -SectionName "matching_rules"
+    $workbookConfig = Merge-JobCrawlerProfileSection -Base $workbookBase -Profile $profile -SectionName "workbook"
+    $preferencesConfig = Merge-JobCrawlerProfileSection -Base $preferencesBase -Profile $profile -SectionName "preferences"
+
+    $runtimeConfig = Merge-JobCrawlerLocalConfig -Root $root -Name "runtime" -Value $runtimeConfig -AppliedOverrides $appliedOverrides
+    $crawlModesConfig = Merge-JobCrawlerLocalConfig -Root $root -Name "crawl_modes" -Value $crawlModesConfig -AppliedOverrides $appliedOverrides
+    $sourcesConfig = Merge-JobCrawlerLocalConfig -Root $root -Name "sources" -Value $sourcesConfig -AppliedOverrides $appliedOverrides
+    $matchingRulesConfig = Merge-JobCrawlerLocalConfig -Root $root -Name "matching_rules" -Value $matchingRulesConfig -AppliedOverrides $appliedOverrides
+    $workbookConfig = Merge-JobCrawlerLocalConfig -Root $root -Name "workbook" -Value $workbookConfig -AppliedOverrides $appliedOverrides
+    $preferencesConfig = Merge-JobCrawlerLocalConfig -Root $root -Name "preferences" -Value $preferencesConfig -AppliedOverrides $appliedOverrides
 
     return [PSCustomObject]@{
         Root           = $root
         LocalOverrides = @($appliedOverrides.ToArray())
+        Profile        = [PSCustomObject]@{
+            Id          = $selectedProfileId
+            Label       = [string](Get-ConfigProperty -Object $profile -Name "label" -DefaultValue $selectedProfileId)
+            Description = [string](Get-ConfigProperty -Object $profile -Name "description" -DefaultValue "")
+            Raw         = $profile
+        }
         Runtime        = $runtimeConfig
         CrawlModes     = $crawlModesConfig
         Sources        = $sourcesConfig
@@ -264,34 +438,27 @@ function Test-JobCrawlerSourceEnabledByDefault {
     return ConvertTo-ConfigBoolean -Value $value -DefaultValue $DefaultValue
 }
 
-function Test-JobCrawlerSourceRequiresCredentials {
-    param(
-        [AllowNull()]$SourcesConfig,
-        [string]$SourceKey
-    )
+function Get-JobCrawlerConfiguredSourceOrder {
+    param([AllowNull()]$SourcesConfig)
 
-    $value = Get-ConfigPathValue -Object $SourcesConfig -Path ("sources.{0}.requires_credentials" -f $SourceKey) -DefaultValue $false
-    return ConvertTo-ConfigBoolean -Value $value -DefaultValue $false
-}
+    $sourceOrder = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $SourcesConfig -Path "source_order" -DefaultValue @()))
+    if ($sourceOrder.Count -eq 0) {
+        $sources = Get-ConfigProperty -Object $SourcesConfig -Name "sources" -DefaultValue $null
+        $sourceOrder = @(Get-ConfigPropertyNames -Object $sources)
+    }
 
-function Get-JobCrawlerSourceLabel {
-    param(
-        [AllowNull()]$SourcesConfig,
-        [string]$SourceKey,
-        [string]$DefaultValue
-    )
+    if ($sourceOrder.Count -eq 0) {
+        # Last-resort compatibility for older local configs that predate sources.json.
+        $sourceOrder = @("apec", "hellowork", "wttj_public", "linkedin", "france_travail", "adzuna", "welcome_kit")
+    }
 
-    return [string](Get-ConfigPathValue -Object $SourcesConfig -Path ("sources.{0}.label" -f $SourceKey) -DefaultValue $DefaultValue)
+    return @($sourceOrder | Select-Object -Unique)
 }
 
 function Get-JobCrawlerSourceDefinitions {
     param([AllowNull()]$SourcesConfig)
 
-    $defaultSourceOrder = @("apec", "hellowork", "wttj_public", "linkedin", "france_travail", "adzuna", "welcome_kit")
-    $sourceOrder = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $SourcesConfig -Path "source_order" -DefaultValue $defaultSourceOrder))
-    if ($sourceOrder.Count -eq 0) {
-        $sourceOrder = $defaultSourceOrder
-    }
+    $sourceOrder = @(Get-JobCrawlerConfiguredSourceOrder -SourcesConfig $SourcesConfig)
 
     $defaults = @{
         apec = @{
@@ -344,6 +511,27 @@ function Get-JobCrawlerSourceDefinitions {
     }
 
     return @($definitions.ToArray())
+}
+
+function Get-JobCrawlerSourceQueryList {
+    param(
+        [AllowNull()]$SourcesConfig,
+        [string]$SourceKey,
+        [string[]]$FallbackKeys = @("api")
+    )
+
+    foreach ($key in (@($SourceKey) + @($FallbackKeys))) {
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            continue
+        }
+
+        $queries = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $SourcesConfig -Path ("queries.{0}" -f $key) -DefaultValue @()))
+        if ($queries.Count -gt 0) {
+            return @($queries)
+        }
+    }
+
+    return @()
 }
 
 function Get-JobCrawlerCredentialValue {
@@ -427,14 +615,17 @@ function Test-JobCrawlerConfig {
         $issues.Add("Missing matching_rules.thresholds.minimum_match_score") | Out-Null
     }
 
-    $linkedInQueries = Get-ConfigStringArray (Get-ConfigPathValue -Object $Config.Sources -Path "queries.linkedin" -DefaultValue @())
+    $linkedInQueries = Get-JobCrawlerSourceQueryList -SourcesConfig $Config.Sources -SourceKey "linkedin" -FallbackKeys @("api")
     if ($linkedInQueries.Count -eq 0) {
         $issues.Add("Missing sources.queries.linkedin") | Out-Null
     }
 
-    $apiQueries = Get-ConfigStringArray (Get-ConfigPathValue -Object $Config.Sources -Path "queries.api" -DefaultValue @())
-    if ($apiQueries.Count -eq 0) {
-        $issues.Add("Missing sources.queries.api") | Out-Null
+    $searchSourceKeys = @("hellowork", "apec", "france_travail", "adzuna")
+    $searchSourceQueryCounts = @($searchSourceKeys | ForEach-Object {
+        @(Get-JobCrawlerSourceQueryList -SourcesConfig $Config.Sources -SourceKey $_ -FallbackKeys @("api")).Count
+    })
+    if (@($searchSourceQueryCounts | Where-Object { $_ -gt 0 }).Count -eq 0) {
+        $issues.Add("Missing source search queries. Configure sources.queries.api or per-source query lists.") | Out-Null
     }
 
     $statusOptions = Get-ConfigStringArray (Get-ConfigPathValue -Object $Config.Workbook -Path "status_options" -DefaultValue @())
@@ -442,7 +633,12 @@ function Test-JobCrawlerConfig {
         $issues.Add("workbook.status_options must include 'new'") | Out-Null
     }
 
-    foreach ($sourceKey in @("apec", "hellowork", "wttj_public", "linkedin", "france_travail", "adzuna", "welcome_kit")) {
+    $configuredSourceOrder = @(Get-JobCrawlerConfiguredSourceOrder -SourcesConfig $Config.Sources)
+    if ($configuredSourceOrder.Count -eq 0) {
+        $issues.Add("Missing sources metadata") | Out-Null
+    }
+
+    foreach ($sourceKey in $configuredSourceOrder) {
         $sourceConfig = Get-ConfigPathValue -Object $Config.Sources -Path ("sources.{0}" -f $sourceKey) -DefaultValue $null
         if ($null -eq $sourceConfig) {
             $issues.Add("Missing sources.$sourceKey metadata") | Out-Null

@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Get-ApecContractType {
     param([AllowNull()]$Job)
 
@@ -70,9 +68,9 @@ function New-ApecSearchBody {
 }
 
 function Get-ApecJobs {
-    Set-RunWindowTitle "Analytics Job Crawler - APEC"
+    Set-RunWindowTitle "Job Crawler - APEC"
     Write-RunStatus "Collecting APEC jobs from the public search endpoint..."
-    Write-RunStatus ("APEC plan: {0} query/queries, up to {1} page(s) each, no detail-page crawl." -f $ApiSearchQueries.Count, $MaxApecPages)
+    Write-RunStatus ("APEC plan: {0} query/queries, up to {1} page(s) each, no detail-page crawl." -f $ApecQueries.Count, $MaxApecPages)
 
     $stats = Start-SourceStats "APEC"
     $results = New-Object System.Collections.Generic.List[object]
@@ -85,9 +83,9 @@ function Get-ApecJobs {
     $pageSize = 20
     $queryIndex = 0
 
-    foreach ($query in $ApiSearchQueries) {
+    foreach ($query in $ApecQueries) {
         $queryIndex++
-        Write-RunStatus ("APEC query {0}/{1}: {2}" -f $queryIndex, $ApiSearchQueries.Count, $query)
+        Write-RunStatus ("APEC query {0}/{1}: {2}" -f $queryIndex, $ApecQueries.Count, $query)
 
         for ($page = 0; $page -lt $MaxApecPages; $page++) {
             $body = New-ApecSearchBody -Query $query -Page $page -PageSize $pageSize -SortType "SCORE"
@@ -151,7 +149,7 @@ function Get-ApecJobs {
                 }
             }
 
-            Write-CountProgress -Activity ("APEC query {0}/{1}" -f $queryIndex, $ApiSearchQueries.Count) -Current ($page + 1) -Total $MaxApecPages -Found $results.Count -Every 1
+            Write-CountProgress -Activity ("APEC query {0}/{1}" -f $queryIndex, $ApecQueries.Count) -Current ($page + 1) -Total $MaxApecPages -Found $results.Count -Every 1
             if ($jobArray.Count -lt $pageSize) {
                 break
             }

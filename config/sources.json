@@ -1,178 +1,132 @@
-{
-  "source_order": [
-    "apec",
-    "hellowork",
-    "wttj_public",
-    "linkedin",
-    "france_travail",
-    "adzuna",
-    "welcome_kit"
-  ],
-  "sources": {
-    "apec": {
-      "label": "APEC",
-      "short_label": "APEC",
-      "enabled_by_default": true,
-      "requires_credentials": false,
-      "crawl_function": "Get-ApecJobs",
-      "skip_switch": "SkipApec",
-      "enable_switch": ""
-    },
-    "hellowork": {
-      "label": "HelloWork",
-      "short_label": "HelloWork",
-      "enabled_by_default": true,
-      "requires_credentials": false,
-      "crawl_function": "Get-HelloWorkJobs",
-      "skip_switch": "SkipHelloWork",
-      "enable_switch": ""
-    },
-    "wttj_public": {
-      "label": "Welcome to the Jungle public",
-      "short_label": "WTTJ public",
-      "enabled_by_default": true,
-      "requires_credentials": false,
-      "crawl_function": "Get-WttjPublicFallbackJobs",
-      "skip_switch": "DisableWttjPublicFallback",
-      "enable_switch": "",
-      "fallback_for": "welcome_kit"
-    },
-    "linkedin": {
-      "label": "LinkedIn public guest",
-      "short_label": "LinkedIn public",
-      "enabled_by_default": true,
-      "requires_credentials": false,
-      "crawl_function": "Get-LinkedInJobs",
-      "skip_switch": "SkipLinkedIn",
-      "enable_switch": ""
-    },
-    "france_travail": {
-      "label": "France Travail API",
-      "short_label": "France Travail",
-      "enabled_by_default": false,
-      "requires_credentials": true,
-      "crawl_function": "Get-FranceTravailJobs",
-      "skip_switch": "SkipFranceTravail",
-      "enable_switch": "EnableFranceTravail"
-    },
-    "adzuna": {
-      "label": "Adzuna API",
-      "short_label": "Adzuna",
-      "enabled_by_default": false,
-      "requires_credentials": true,
-      "crawl_function": "Get-AdzunaJobs",
-      "skip_switch": "SkipAdzuna",
-      "enable_switch": "EnableAdzuna"
-    },
-    "welcome_kit": {
-      "label": "WelcomeKit API",
-      "short_label": "WelcomeKit",
-      "enabled_by_default": false,
-      "requires_credentials": true,
-      "crawl_function": "Get-WelcomeKitJobs",
-      "skip_switch": "DisableWelcomeKit",
-      "enable_switch": "EnableWelcomeKit"
-    }
-  },
-  "public_default_sources": [
-    "apec",
-    "hellowork",
-    "wttj_public",
-    "linkedin"
-  ],
-  "credentialed_sources": [
-    "france_travail",
-    "adzuna",
-    "welcome_kit"
-  ],
-  "credentials": {
-    "welcome_kit": {
-      "api_key": {
-        "env": "WK_API_KEY"
-      }
-    },
-    "france_travail": {
-      "client_id": {
-        "env": "FRANCE_TRAVAIL_CLIENT_ID"
-      },
-      "client_secret": {
-        "env": "FRANCE_TRAVAIL_CLIENT_SECRET"
-      },
-      "scope": {
-        "env": "FRANCE_TRAVAIL_SCOPE",
-        "default": "api_offresdemploiv2 o2dsoffre"
-      }
-    },
-    "adzuna": {
-      "app_id": {
-        "env": "ADZUNA_APP_ID"
-      },
-      "app_key": {
-        "env": "ADZUNA_APP_KEY"
-      }
-    }
-  },
-  "endpoints": {
-    "welcome_kit_jobs": "https://www.welcomekit.co/api/v1/external/jobs/all",
-    "welcome_kit_job_detail": "https://www.welcomekit.co/api/v1/external/jobs/{reference}",
-    "france_travail_token": "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire",
-    "france_travail_jobs": "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search",
-    "adzuna_jobs": "https://api.adzuna.com/v1/api/jobs/fr/search/{page}",
-    "apec_search": "https://www.apec.fr/cms/webservices/rechercheOffre",
-    "hellowork_search": "https://www.hellowork.com/fr-fr/emploi/recherche.html",
-    "linkedin_search": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search",
-    "linkedin_detail": "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}",
-    "wttj_job_page": "https://www.welcometothejungle.com/fr/jobs/{reference}",
-    "wttj_sitemap_index": "https://www.welcometothejungle.com/sitemaps/index.xml.gz",
-    "apec_detail": "https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/{id}",
-    "apec_origin": "https://www.apec.fr",
-    "apec_referer": "https://www.apec.fr/candidat/recherche-emploi.html/emploi",
-    "france_travail_detail": "https://candidat.francetravail.fr/offres/recherche/detail/{id}"
-  },
-  "queries": {
-    "linkedin": [
-      "web analyst google tag manager",
-      "web analyst google analytics",
-      "web analyst cro google analytics",
-      "digital analyst google tag manager",
-      "digital analyst google analytics",
-      "digital analytics consultant",
-      "senior digital analytics consultant",
-      "tracking analyst ga4 gtm",
-      "tracking analytics specialist",
-      "analytics consultant google tag manager",
-      "performance digital google analytics",
-      "charge performance digital google analytics",
-      "piano analytics",
-      "contentsquare analytics",
-      "tag commander analytics",
-      "commanders act analytics",
-      "tealium analytics",
-      "server side tracking",
-      "rgpd analytics",
-      "tagging plan analytics"
-    ],
-    "api": [
-      "web analyst",
-      "digital analyst",
-      "web analytics",
-      "digital analytics",
-      "tracking analyst",
-      "tracking analytics",
-      "google analytics",
-      "google tag manager",
-      "piano analytics",
-      "contentsquare",
-      "tag commander",
-      "commanders act",
-      "tealium",
-      "server side tracking",
-      "rgpd analytics",
-      "cro analytics",
-      "performance digital analytics"
-    ]
-  },
-  "patterns": {
-    "wttj_url_candidate": "(?i)(web[-_\\s]*analyst|digital[-_\\s]*analyst|web[-_\\s]*analytics|digital[-_\\s]*analytics|analytics[-_\\s]*(consultant|specialist|manager|engineer)|tracking|taggage|tagging|data[-_\\s]*analyst|(^|[-_\\s])ga4($|[-_\\s])|(^|[-_\\s])gtm($|[-_\\s])|google[-_\\s]*(analytics|tag[-_\\s]*manager)|piano|contentsquare|content[-_\\s]*square|tag[-_\\s]*commander|commanders?[-_\\s]*act|tealium|server[-_\\s]*side|(^|[-_\\s])rgpd($|[-_\\s])|(^|[-_\\s])gdpr($|[-_\\s])|(^|[-_\\s])cro($|[-_\\s]))"
-  }
+﻿{
+    "source_order":  [
+                         "apec",
+                         "hellowork",
+                         "wttj_public",
+                         "linkedin",
+                         "france_travail",
+                         "adzuna",
+                         "welcome_kit"
+                     ],
+    "sources":  {
+                    "apec":  {
+                                 "label":  "APEC",
+                                 "short_label":  "APEC",
+                                 "enabled_by_default":  true,
+                                 "requires_credentials":  false,
+                                 "crawl_function":  "Get-ApecJobs",
+                                 "skip_switch":  "SkipApec",
+                                 "enable_switch":  ""
+                             },
+                    "hellowork":  {
+                                      "label":  "HelloWork",
+                                      "short_label":  "HelloWork",
+                                      "enabled_by_default":  true,
+                                      "requires_credentials":  false,
+                                      "crawl_function":  "Get-HelloWorkJobs",
+                                      "skip_switch":  "SkipHelloWork",
+                                      "enable_switch":  ""
+                                  },
+                    "wttj_public":  {
+                                        "label":  "Welcome to the Jungle public",
+                                        "short_label":  "WTTJ public",
+                                        "enabled_by_default":  true,
+                                        "requires_credentials":  false,
+                                        "crawl_function":  "Get-WttjPublicFallbackJobs",
+                                        "skip_switch":  "DisableWttjPublicFallback",
+                                        "enable_switch":  "",
+                                        "fallback_for":  "welcome_kit"
+                                    },
+                    "linkedin":  {
+                                     "label":  "LinkedIn public guest",
+                                     "short_label":  "LinkedIn public",
+                                     "enabled_by_default":  true,
+                                     "requires_credentials":  false,
+                                     "crawl_function":  "Get-LinkedInJobs",
+                                     "skip_switch":  "SkipLinkedIn",
+                                     "enable_switch":  ""
+                                 },
+                    "france_travail":  {
+                                           "label":  "France Travail API",
+                                           "short_label":  "France Travail",
+                                           "enabled_by_default":  false,
+                                           "requires_credentials":  true,
+                                           "crawl_function":  "Get-FranceTravailJobs",
+                                           "skip_switch":  "SkipFranceTravail",
+                                           "enable_switch":  "EnableFranceTravail"
+                                       },
+                    "adzuna":  {
+                                   "label":  "Adzuna API",
+                                   "short_label":  "Adzuna",
+                                   "enabled_by_default":  false,
+                                   "requires_credentials":  true,
+                                   "crawl_function":  "Get-AdzunaJobs",
+                                   "skip_switch":  "SkipAdzuna",
+                                   "enable_switch":  "EnableAdzuna"
+                               },
+                    "welcome_kit":  {
+                                        "label":  "WelcomeKit API",
+                                        "short_label":  "WelcomeKit",
+                                        "enabled_by_default":  false,
+                                        "requires_credentials":  true,
+                                        "crawl_function":  "Get-WelcomeKitJobs",
+                                        "skip_switch":  "DisableWelcomeKit",
+                                        "enable_switch":  "EnableWelcomeKit"
+                                    }
+                },
+    "public_default_sources":  [
+                                   "apec",
+                                   "hellowork",
+                                   "wttj_public",
+                                   "linkedin"
+                               ],
+    "credentialed_sources":  [
+                                 "france_travail",
+                                 "adzuna",
+                                 "welcome_kit"
+                             ],
+    "credentials":  {
+                        "welcome_kit":  {
+                                            "api_key":  {
+                                                            "env":  "WK_API_KEY"
+                                                        }
+                                        },
+                        "france_travail":  {
+                                               "client_id":  {
+                                                                 "env":  "FRANCE_TRAVAIL_CLIENT_ID"
+                                                             },
+                                               "client_secret":  {
+                                                                     "env":  "FRANCE_TRAVAIL_CLIENT_SECRET"
+                                                                 },
+                                               "scope":  {
+                                                             "env":  "FRANCE_TRAVAIL_SCOPE",
+                                                             "default":  "api_offresdemploiv2 o2dsoffre"
+                                                         }
+                                           },
+                        "adzuna":  {
+                                       "app_id":  {
+                                                      "env":  "ADZUNA_APP_ID"
+                                                  },
+                                       "app_key":  {
+                                                       "env":  "ADZUNA_APP_KEY"
+                                                   }
+                                   }
+                    },
+    "endpoints":  {
+                      "welcome_kit_jobs":  "https://www.welcomekit.co/api/v1/external/jobs/all",
+                      "welcome_kit_job_detail":  "https://www.welcomekit.co/api/v1/external/jobs/{reference}",
+                      "france_travail_token":  "https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire",
+                      "france_travail_jobs":  "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search",
+                      "adzuna_jobs":  "https://api.adzuna.com/v1/api/jobs/fr/search/{page}",
+                      "apec_search":  "https://www.apec.fr/cms/webservices/rechercheOffre",
+                      "hellowork_search":  "https://www.hellowork.com/fr-fr/emploi/recherche.html",
+                      "linkedin_search":  "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search",
+                      "linkedin_detail":  "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{id}",
+                      "wttj_job_page":  "https://www.welcometothejungle.com/fr/jobs/{reference}",
+                      "wttj_sitemap_index":  "https://www.welcometothejungle.com/sitemaps/index.xml.gz",
+                      "apec_detail":  "https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/{id}",
+                      "apec_origin":  "https://www.apec.fr",
+                      "apec_referer":  "https://www.apec.fr/candidat/recherche-emploi.html/emploi",
+                      "france_travail_detail":  "https://candidat.francetravail.fr/offres/recherche/detail/{id}"
+                  }
 }

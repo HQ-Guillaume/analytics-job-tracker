@@ -7,7 +7,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 scriptDirectory = fso.GetParentFolderName(WScript.ScriptFullName)
 
 command = "powershell.exe -NoLogo -NoProfile -WindowStyle Hidden -STA -ExecutionPolicy Bypass -File " & _
-    """" & scriptDirectory & "\Launch-AnalyticsJobCrawlerGui.ps1" & """"
+    """" & scriptDirectory & "\app\cli\Launch-AnalyticsJobCrawlerGui.ps1" & """"
 
 shell.CurrentDirectory = scriptDirectory
 shell.Run command, 0, False

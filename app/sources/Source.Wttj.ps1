@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Get-WttjLocationFromUrl {
     param([AllowNull()][string]$Url)
 
@@ -355,7 +353,7 @@ function Get-WelcomeKitJobs {
         return @()
     }
 
-    Set-RunWindowTitle "Analytics Job Crawler - WTTJ API"
+    Set-RunWindowTitle "Job Crawler - WTTJ API"
     Write-RunStatus "Collecting Welcome to the Jungle jobs through the official WelcomeKit API..."
     $stats = Start-SourceStats "WelcomeKit"
     $results = New-Object System.Collections.Generic.List[object]
@@ -452,7 +450,7 @@ function Get-WttjPublicFallbackJobs {
         return @()
     }
 
-    Set-RunWindowTitle "Analytics Job Crawler - WTTJ"
+    Set-RunWindowTitle "Job Crawler - WTTJ"
     Write-RunStatus "Collecting Welcome to the Jungle jobs from public sitemaps..."
     $stats = Start-SourceStats "WTTJ public"
     $results = New-Object System.Collections.Generic.List[object]

@@ -2,9 +2,9 @@
 setlocal
 cd /d "%~dp0"
 
-title Analytics Job Crawler - Starting
+title Job Crawler - Starting
 cls
-echo Analytics Job Crawler
+echo Job Crawler
 echo Started: %DATE% %TIME%
 echo.
 echo The window title and timestamped lines show the current stage.
@@ -29,15 +29,15 @@ if errorlevel 1 set "CRAWL_MODE=Fast"
 echo.
 echo Selected mode: %CRAWL_MODE%
 echo.
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Find-AnalyticsJobs.ps1" -CrawlMode "%CRAWL_MODE%"
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0app\cli\Find-AnalyticsJobs.ps1" -CrawlMode "%CRAWL_MODE%"
 set "CRAWLER_EXIT_CODE=%ERRORLEVEL%"
 
 echo.
 if "%CRAWLER_EXIT_CODE%"=="0" (
-    title Analytics Job Crawler - Finished
+    title Job Crawler - Finished
     echo Finished successfully.
 ) else (
-    title Analytics Job Crawler - Error
+    title Job Crawler - Error
     echo Finished with error code %CRAWLER_EXIT_CODE%.
 )
 echo Tracker workbook and backups are in:

@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Add-MatchSignal {
     param(
         [hashtable]$State,
@@ -55,6 +53,25 @@ function Format-MatchReasonText {
     return ($parts.ToArray() -join " | ")
 }
 
+function Get-JobCrawlerContextPattern {
+    param(
+        [AllowNull()]$Rules,
+        [string]$Name,
+        [AllowNull()][string]$FallbackName = "",
+        [string]$DefaultValue = "(?!)"
+    )
+
+    $pattern = [string](Get-ConfigPathValue -Object $Rules -Path ("contexts.{0}" -f $Name) -DefaultValue "")
+    if ([string]::IsNullOrWhiteSpace($pattern) -and -not [string]::IsNullOrWhiteSpace($FallbackName)) {
+        $pattern = [string](Get-ConfigPathValue -Object $Rules -Path ("contexts.{0}" -f $FallbackName) -DefaultValue "")
+    }
+    if ([string]::IsNullOrWhiteSpace($pattern)) {
+        $pattern = $DefaultValue
+    }
+
+    return $pattern
+}
+
 function Get-JobMatch {
     param(
         [string]$Title,
@@ -71,10 +88,11 @@ function Get-JobMatch {
         Keywords = @{}
     }
     $isGoToMarketContext = $fullText -match [string](Get-ConfigPathValue -Object $rules -Path "contexts.go_to_market" -DefaultValue "go\s*[- ]?\s*to\s*[- ]?\s*market")
-    $webAnalyticsToolPattern = [string](Get-ConfigPathValue -Object $rules -Path "contexts.web_analytics_tools" -DefaultValue "google\s+tag\s+manager|google\s+analytics|\bga4\b|piano\s+analytics|contentsquare|content\s+square")
-    $hasWebAnalyticsToolSignal = ($fullText -match $webAnalyticsToolPattern) -or (-not $isGoToMarketContext -and $fullText -match "\bgtm\b")
-    $hasDigitalAnalyticsContext = $hasWebAnalyticsToolSignal -or ($titleText -match [string](Get-ConfigPathValue -Object $rules -Path "contexts.digital_analytics_title" -DefaultValue "\bweb\s*analyst\b|\bdigital\s*analyst\b|web\s+analytics|digital\s+analytics|tracking|tagging|\bcro\b"))
-    $isMarketingOnlyContext = ($fullText -match [string](Get-ConfigPathValue -Object $rules -Path "contexts.marketing_only" -DefaultValue "\bseo\b|\bsea\b|paid\s+social|paid\s+search|performance\s+marketing")) -and -not $hasDigitalAnalyticsContext
+    $profileSkillPattern = Get-JobCrawlerContextPattern -Rules $rules -Name "profile_skill_context" -FallbackName "web_analytics_tools" -DefaultValue "google\s+tag\s+manager|google\s+analytics|\bga4\b|piano\s+analytics|contentsquare|content\s+square"
+    $hasProfileSkillSignal = ($fullText -match $profileSkillPattern) -or (-not $isGoToMarketContext -and $fullText -match "\bgtm\b")
+    $profileTitlePattern = Get-JobCrawlerContextPattern -Rules $rules -Name "profile_title_context" -FallbackName "digital_analytics_title" -DefaultValue "\bweb\s*analyst\b|\bdigital\s*analyst\b|web\s+analytics|digital\s+analytics|tracking|tagging|\bcro\b"
+    $hasProfileContext = $hasProfileSkillSignal -or ($titleText -match $profileTitlePattern)
+    $isMarketingOnlyContext = ($fullText -match [string](Get-ConfigPathValue -Object $rules -Path "contexts.marketing_only" -DefaultValue "\bseo\b|\bsea\b|paid\s+social|paid\s+search|performance\s+marketing")) -and -not $hasProfileContext
     $isDataWarehouseContext = $fullText -match [string](Get-ConfigPathValue -Object $rules -Path "contexts.data_warehouse" -DefaultValue "\bdbt\b|snowflake|airflow|\betl\b|data\s+warehouse|\bpython\b")
 
     foreach ($signal in @(Get-ConfigPathValue -Object $rules -Path "positive_signals" -DefaultValue @())) {
@@ -137,7 +155,7 @@ function Get-JobMatch {
         $state.Keywords[[string](Get-ConfigProperty -Object $rule -Name "keyword" -DefaultValue "Risk: broad analyst role")] = $true
     }
 
-    if ((($titleText -match "\bdata\s*analyst\b|analyste\s+de\s+donnees|analytics?\s+engineer|data\s+engineer") -or $isDataWarehouseContext) -and -not $hasDigitalAnalyticsContext) {
+    if ((($titleText -match "\bdata\s*analyst\b|analyste\s+de\s+donnees|analytics?\s+engineer|data\s+engineer") -or $isDataWarehouseContext) -and -not $hasProfileContext) {
         $rule = Get-ConfigProperty -Object $negative -Name "data_analyst_engineering" -DefaultValue $null
         $state.Score += [int](Get-ConfigProperty -Object $rule -Name "score" -DefaultValue -25)
         $state.Keywords[[string](Get-ConfigProperty -Object $rule -Name "keyword" -DefaultValue "Risk: data analyst/engineering role")] = $true
@@ -157,8 +175,8 @@ function Get-JobMatch {
     $learning = Get-FeedbackLearningAdjustment `
         -FullText $fullText `
         -HasCoreTitleSignal:$hasCoreTitleSignal `
-        -HasWebAnalyticsToolSignal:$hasWebAnalyticsToolSignal `
-        -HasDigitalAnalyticsContext:$hasDigitalAnalyticsContext
+        -HasProfileSkillSignal:$hasProfileSkillSignal `
+        -HasProfileContext:$hasProfileContext
     if ($null -ne $learning -and [int]$learning.Adjustment -ne 0) {
         $state.Score += [int]$learning.Adjustment
         foreach ($reason in @($learning.Reasons)) {
@@ -220,7 +238,7 @@ function Get-ContractTypeFromText {
     if ($matchText -match "\bcdi\b|contrat\s+a\s+duree\s+indeterminee") {
         return "CDI"
     }
-    if ($matchText -match "\bcdd\b|contrat\s+a\s+duree\s+determinee|fixed[-\s]*term|temporary|temporaire") {
+    if ($matchText -match "\bcdd\b|contrat\s+a\s+duree\s+determinee|fixed[-\s]*term|temporary|temporaire|interim|\b\d+\s*(mois|months)\b|contrat\s+de\s+mission") {
         return "CDD"
     }
     if ($matchText -match "freelance|contractor|independant") {
@@ -246,7 +264,7 @@ function Get-ContractTypeFromText {
     if ($Text -match "(?i)(stage|stagiaire|internship|intern\b)") {
         return "Internship"
     }
-    if ($Text -match "(?i)(\bCDD\b|contrat\s+a\s+duree\s+determinee|fixed[-\s]*term|temporary|temporaire)") {
+    if ($Text -match "(?i)(\bCDD\b|contrat\s+a\s+duree\s+determinee|fixed[-\s]*term|temporary|temporaire|int[eé]rim|\b\d+\s*(mois|months)\b|contrat\s+de\s+mission)") {
         return "CDD"
     }
     if ($Text -match "(?i)(freelance|contractor|independant)") {
@@ -270,7 +288,7 @@ function Test-IsExcludedContractType {
         return $false
     }
 
-    $pattern = [string](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "contract_rules.excluded_pattern" -DefaultValue "\bcdd\b|apprenticeship|apprentissage|alternance|internship|\bstage\b|stagiaire|temporary|fixed\s+term|freelance|contractor|independant|independent")
+    $pattern = [string](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "contract_rules.excluded_pattern" -DefaultValue "\bcdd\b|apprenticeship|apprentissage|alternance|internship|\bstage\b|stagiaire|temporary|fixed\s+term|freelance|contractor|independant|independent|interim|int[eé]rim|\b\d+\s*(mois|months)\b|contrat\s+de\s+mission")
     return $contractText -match $pattern
 }
 
@@ -304,7 +322,7 @@ function Test-ShouldSkipEarlyByContract {
     }
 
     $matchText = ConvertTo-MatchText (Join-CleanTextParts @($ContractType, $Text))
-    $earlyPattern = [string](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "contract_rules.early_explicit_excluded_pattern" -DefaultValue "\bcdd\b|apprentissage|alternance|apprenticeship|internship|\bstage\b|stagiaire|freelance|contractor|independant|independent")
+    $earlyPattern = [string](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "contract_rules.early_explicit_excluded_pattern" -DefaultValue "\bcdd\b|apprentissage|alternance|apprenticeship|internship|\bstage\b|stagiaire|freelance|contractor|independant|independent|interim|int[eé]rim|\b\d+\s*(mois|months)\b|contrat\s+de\s+mission")
     if ($matchText -match $earlyPattern) {
         return Test-IsExcludedContractType $effectiveContract
     }
@@ -427,21 +445,36 @@ function Get-JobCrawlerPreferences {
         $configRoot = [string]$script:JobCrawlerConfig.Root
     }
     if ([string]::IsNullOrWhiteSpace($configRoot)) {
-        $configRoot = Join-Path (Split-Path -Parent $PSScriptRoot) "config"
+        $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $configRoot = Join-Path $projectRoot "config"
     }
-    $path = Join-Path $configRoot "preferences.json"
-    if (-not (Test-Path -LiteralPath $path)) {
+    $preferencePaths = @(
+        (Join-Path $configRoot "preferences.json"),
+        (Join-Path $configRoot "local.preferences.json"),
+        (Join-Path (Join-Path $configRoot "local") "preferences.json")
+    )
+    $configuredPreferences = [PSCustomObject]@{}
+    $foundPreferenceFile = $false
+    foreach ($path in $preferencePaths) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+
+        try {
+            $filePreferences = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+            $configuredPreferences = Merge-JobCrawlerConfigObjects -Base $configuredPreferences -Override $filePreferences
+            $foundPreferenceFile = $true
+        }
+        catch {
+            Write-Warning ("Could not read preference config '{0}', using built-in defaults for that file: {1}" -f $path, $_.Exception.Message)
+        }
+    }
+
+    if (-not $foundPreferenceFile) {
         return $default
     }
 
-    try {
-        $configuredPreferences = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-        return (Merge-JobCrawlerConfigObjects -Base $default -Override $configuredPreferences)
-    }
-    catch {
-        Write-Warning ("Could not read config\preferences.json, using built-in defaults: {0}" -f $_.Exception.Message)
-        return $default
-    }
+    return (Merge-JobCrawlerConfigObjects -Base $default -Override $configuredPreferences)
 }
 
 function Get-PreferenceWeight {
@@ -847,10 +880,36 @@ function Get-FeedbackSeniorityBucket {
     return ""
 }
 
-function Test-FeedbackTextHasWebAnalyticsSignal {
+function Test-FeedbackTextHasProfileSignal {
     param([string]$Text)
 
-    return $Text -match "web\s+analytics|digital\s+analytics|web\s*analyst|digital\s*analyst|tracking|tagging|taggage|webtracking|google\s+tag\s+manager|\bgtm\b|google\s+analytics|\bga4\b|piano|contentsquare|content\s+square|tag\s+commander|commanders?\s+act|\btealium\b|data\s*layer|datalayer|tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)|server\s*[- ]?\s*side|consent\s+mode|\brgpd\b|\bgdpr\b|matomo|adobe\s+analytics"
+    $matchText = ConvertTo-MatchText $Text
+    $patterns = New-Object System.Collections.Generic.List[string]
+    foreach ($contextName in @("profile_skill_context", "profile_title_context", "web_analytics_tools", "digital_analytics_title", "core_title")) {
+        $pattern = [string](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path ("contexts.{0}" -f $contextName) -DefaultValue "")
+        if (-not [string]::IsNullOrWhiteSpace($pattern)) {
+            $patterns.Add($pattern) | Out-Null
+        }
+    }
+    foreach ($signal in @(Get-FeedbackSignalDefinitions)) {
+        $pattern = [string](Get-ConfigProperty -Object $signal -Name "Pattern" -DefaultValue "")
+        if (-not [string]::IsNullOrWhiteSpace($pattern)) {
+            $patterns.Add($pattern) | Out-Null
+        }
+    }
+    $fallbackProfileSignalPattern = [string](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "feedback_profile_signal_pattern" -DefaultValue "")
+    if ([string]::IsNullOrWhiteSpace($fallbackProfileSignalPattern)) {
+        $fallbackProfileSignalPattern = "web\s+analytics|digital\s+analytics|web\s*analyst|digital\s*analyst|tracking|tagging|taggage|webtracking|google\s+tag\s+manager|\bgtm\b|google\s+analytics|\bga4\b|piano|contentsquare|content\s+square|tag\s+commander|commanders?\s+act|\btealium\b|data\s*layer|datalayer|tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)|server\s*[- ]?\s*side|consent\s+mode|\brgpd\b|\bgdpr\b|matomo|adobe\s+analytics"
+    }
+    $patterns.Add($fallbackProfileSignalPattern) | Out-Null
+
+    foreach ($pattern in @($patterns.ToArray() | Select-Object -Unique)) {
+        if ($matchText -match $pattern) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Get-FeedbackSignalDefinitions {
@@ -873,7 +932,7 @@ function Get-FeedbackSignalDefinitions {
         [PSCustomObject]@{ Key = "tag_commander"; Label = "feedback positive: Tag Commander/Commanders Act"; Pattern = "tag\s+commander|commanders?\s+act" },
         [PSCustomObject]@{ Key = "tealium"; Label = "feedback positive: Tealium"; Pattern = "\btealium\b|tealium\s+iq" },
         [PSCustomObject]@{ Key = "server_side"; Label = "feedback positive: server-side tracking"; Pattern = "server\s*[- ]?\s*side|server\s+container|\bsgtm\b" },
-        [PSCustomObject]@{ Key = "rgpd"; Label = "feedback positive: RGPD/GDPR"; Pattern = "\brgpd\b|\bgdpr\b|protection\s+des\s+donn[eé]es|privacy|conformit[eé]" },
+        [PSCustomObject]@{ Key = "rgpd"; Label = "feedback positive: RGPD/GDPR"; Pattern = "\brgpd\b|\bgdpr\b|protection\s+des\s+donnees|privacy|conformite" },
         [PSCustomObject]@{ Key = "datalayer"; Label = "feedback positive: dataLayer"; Pattern = "data\s*layer|datalayer" },
         [PSCustomObject]@{ Key = "tagging_plan"; Label = "feedback positive: tagging plan"; Pattern = "tagging\s+plan|tracking\s+plan|plan\s+de\s+(taggage|marquage)" },
         [PSCustomObject]@{ Key = "consent"; Label = "feedback positive: consent tracking"; Pattern = "consent\s+mode|cookie\s+consent|\bcmp\b" },
@@ -960,12 +1019,27 @@ function New-FeedbackLearningProfile {
     }
 }
 
+function Get-DefaultFeedbackNegativeRules {
+    return @(
+        [PSCustomObject]@{ Key = "too_seo_sea_marketing"; Pattern = "\bseo\b|\bsea\b|paid\s+social|paid\s+search|paid\s+media|performance\s+marketing|growth\s+marketing|acquisition|campaign|media\s+buyer"; Label = "feedback ignored: SEO/SEA/marketing"; Max = 14 },
+        [PSCustomObject]@{ Key = "too_data_analyst"; Pattern = "\bdata\s*analyst\b|analyste\s+de\s+donnees|\bpython\b|\bsql\b|notebook|data\s+warehouse|business\s+analyst"; Label = "feedback ignored: data analyst"; Max = 12 },
+        [PSCustomObject]@{ Key = "too_data_engineering"; Pattern = "data\s+engineer|analytics?\s+engineer|\bdbt\b|snowflake|airflow|\betl\b|\belt\b|data\s+warehouse|datawarehouse|data\s+platform|databricks|pyspark|spark|pipeline|backend|devops"; Label = "feedback ignored: data engineering"; Max = 16 },
+        [PSCustomObject]@{ Key = "too_bi_reporting"; Pattern = "\bbi\b|business\s+intelligence|power\s*bi|tableau|dashboard|reporting|looker|data\s+studio|tableau\s+de\s+bord"; Label = "feedback ignored: BI/reporting"; Max = 10 },
+        [PSCustomObject]@{ Key = "too_crm_emailing"; Pattern = "\bcrm\b|emailing|email\s+marketing|marketing\s+automation|salesforce|hubspot|braze|batch|campaign"; Label = "feedback ignored: CRM/emailing"; Max = 12 },
+        [PSCustomObject]@{ Key = "too_content_social"; Pattern = "content\s+marketing|social\s+media|community\s+manager|editorial|copywriting|seo\s+content"; Label = "feedback ignored: content/social"; Max = 12 },
+        [PSCustomObject]@{ Key = "too_managerial"; Pattern = "\bhead\b|director|directeur|directrice|lead|manager|responsable|principal"; Label = "feedback ignored: managerial"; Max = 8 },
+        [PSCustomObject]@{ Key = "agency_consulting_esn"; Pattern = "consultant|consulting|cabinet|agence|agency|\besn\b|ssii"; Label = "feedback ignored: agency/consulting/ESN"; Max = 8 }
+    )
+}
+
 function Get-FeedbackLearningAdjustment {
     param(
         [string]$FullText,
         [bool]$HasCoreTitleSignal,
-        [bool]$HasWebAnalyticsToolSignal,
-        [bool]$HasDigitalAnalyticsContext
+        [Alias("HasWebAnalyticsToolSignal")]
+        [bool]$HasProfileSkillSignal,
+        [Alias("HasDigitalAnalyticsContext")]
+        [bool]$HasProfileContext
     )
 
     $profile = $script:FeedbackLearningProfile
@@ -994,29 +1068,26 @@ function Get-FeedbackLearningAdjustment {
     $ignoreCounts = $profile.IgnoreReasonCounts
     $negativeAdjustment = 0
     $configuredNegativeRules = @(Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "feedback_negative_rules" -DefaultValue @())
-    if ($configuredNegativeRules.Count -gt 0) {
-        $negativeRules = @($configuredNegativeRules | ForEach-Object {
-            [PSCustomObject]@{
-                Key     = [string](Get-ConfigProperty -Object $_ -Name "key" -DefaultValue "")
-                Pattern = [string](Get-ConfigProperty -Object $_ -Name "pattern" -DefaultValue "")
-                Label   = [string](Get-ConfigProperty -Object $_ -Name "label" -DefaultValue "")
-                Max     = [int](Get-ConfigProperty -Object $_ -Name "max" -DefaultValue 8)
-            }
-        } | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Key) -and -not [string]::IsNullOrWhiteSpace($_.Pattern) })
+    $configuredRules = @($configuredNegativeRules | ForEach-Object {
+        [PSCustomObject]@{
+            Key     = [string](Get-ConfigProperty -Object $_ -Name "key" -DefaultValue "")
+            Pattern = [string](Get-ConfigProperty -Object $_ -Name "pattern" -DefaultValue "")
+            Label   = [string](Get-ConfigProperty -Object $_ -Name "label" -DefaultValue "")
+            Max     = [int](Get-ConfigProperty -Object $_ -Name "max" -DefaultValue 8)
+        }
+    } | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Key) -and -not [string]::IsNullOrWhiteSpace($_.Pattern) })
+    $negativeRuleMap = [ordered]@{}
+    $fallbackNegativeRules = @()
+    if ($configuredRules.Count -eq 0) {
+        $fallbackNegativeRules = @(Get-DefaultFeedbackNegativeRules)
     }
-    else {
-        $negativeRules = @(
-            [PSCustomObject]@{ Key = "too_seo_sea_marketing"; Pattern = "\bseo\b|\bsea\b|paid\s+social|paid\s+search|paid\s+media|performance\s+marketing|growth\s+marketing|acquisition|campaign|media\s+buyer"; Label = "feedback ignored: SEO/SEA/marketing"; Max = 14 },
-            [PSCustomObject]@{ Key = "too_data_analyst"; Pattern = "\bdata\s*analyst\b|analyste\s+de\s+donnees|\bpython\b|\bsql\b|notebook|data\s+warehouse|business\s+analyst"; Label = "feedback ignored: data analyst"; Max = 12 },
-            [PSCustomObject]@{ Key = "too_data_engineering"; Pattern = "data\s+engineer|analytics?\s+engineer|\bdbt\b|snowflake|airflow|\betl\b|\belt\b|data\s+warehouse|datawarehouse|data\s+platform|databricks|pyspark|spark|pipeline|backend|devops"; Label = "feedback ignored: data engineering"; Max = 16 },
-            [PSCustomObject]@{ Key = "too_bi_reporting"; Pattern = "\bbi\b|business\s+intelligence|power\s*bi|tableau|dashboard|reporting|looker|data\s+studio|tableau\s+de\s+bord"; Label = "feedback ignored: BI/reporting"; Max = 10 },
-            [PSCustomObject]@{ Key = "too_crm_emailing"; Pattern = "\bcrm\b|emailing|email\s+marketing|marketing\s+automation|salesforce|hubspot|braze|batch|campaign"; Label = "feedback ignored: CRM/emailing"; Max = 12 },
-            [PSCustomObject]@{ Key = "too_content_social"; Pattern = "content\s+marketing|social\s+media|community\s+manager|editorial|copywriting|seo\s+content"; Label = "feedback ignored: content/social"; Max = 12 },
-            [PSCustomObject]@{ Key = "too_product_analytics"; Pattern = "product\s+analyst|product\s+analytics|amplitude|mixpanel|heap"; Label = "feedback ignored: product analytics"; Max = 8 },
-            [PSCustomObject]@{ Key = "too_managerial"; Pattern = "\bhead\b|director|directeur|directrice|lead|manager|responsable|principal"; Label = "feedback ignored: managerial"; Max = 8 },
-            [PSCustomObject]@{ Key = "agency_consulting_esn"; Pattern = "consultant|consulting|cabinet|agence|agency|\besn\b|ssii"; Label = "feedback ignored: agency/consulting/ESN"; Max = 8 }
-        )
+    foreach ($rule in @($configuredRules + $fallbackNegativeRules)) {
+        $ruleKey = "{0}|{1}" -f ([string]$rule.Key), ([string]$rule.Pattern)
+        if (-not $negativeRuleMap.Contains($ruleKey)) {
+            $negativeRuleMap[$ruleKey] = $rule
+        }
     }
+    $negativeRules = @($negativeRuleMap.Values)
 
     foreach ($rule in $negativeRules) {
         $count = Get-HashtableIntValue -Table $ignoreCounts -Key ([string]$rule.Key)
@@ -1024,10 +1095,10 @@ function Get-FeedbackLearningAdjustment {
             continue
         }
 
-        if ($rule.Key -match "too_data|too_bi|too_product" -and $HasWebAnalyticsToolSignal) {
+        if ($rule.Key -match "too_data|too_bi|too_product" -and $HasProfileSkillSignal) {
             continue
         }
-        if ($rule.Key -eq "too_seo_sea_marketing" -and $HasDigitalAnalyticsContext) {
+        if ($rule.Key -eq "too_seo_sea_marketing" -and $HasProfileContext) {
             continue
         }
 
@@ -1037,7 +1108,7 @@ function Get-FeedbackLearningAdjustment {
     }
 
     $notAnalyticsCount = Get-HashtableIntValue -Table $ignoreCounts -Key "not_analytics_enough"
-    if ($notAnalyticsCount -gt 0 -and -not $HasCoreTitleSignal -and -not $HasWebAnalyticsToolSignal) {
+    if ($notAnalyticsCount -gt 0 -and -not $HasCoreTitleSignal -and -not $HasProfileSkillSignal) {
         $negativeAdjustment -= [Math]::Min(12, 4 + (3 * $notAnalyticsCount))
         $reasons.Add("feedback ignored: not analytics enough") | Out-Null
     }
@@ -1065,7 +1136,11 @@ function Get-IgnoredFeedbackPenalty {
     $reason = ConvertTo-IgnoreReasonKey $IgnoreReason
     $rowText = Get-FeedbackProfileText $Row
     $existingText = Get-FeedbackProfileText $ExistingRow
-    $hasWebAnalyticsSignal = Test-FeedbackTextHasWebAnalyticsSignal $rowText
+    $hasProfileSignal = Test-FeedbackTextHasProfileSignal $rowText
+    $disabledPenaltyReasons = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "feedback_disabled_ignore_penalty_reasons" -DefaultValue @()))
+    if ($reason -in @($disabledPenaltyReasons | ForEach-Object { ConvertTo-IgnoreReasonKey $_ })) {
+        return [PSCustomObject]@{ Penalty = 0; Reason = "" }
+    }
 
     if ($reason -eq "duplicate") {
         return [PSCustomObject]@{ Penalty = 0; Reason = "" }
@@ -1073,7 +1148,7 @@ function Get-IgnoredFeedbackPenalty {
 
     switch ($reason) {
         "not_analytics_enough" {
-            if (-not $hasWebAnalyticsSignal -or $rowText -match "possible marketing|possible broad analyst|possible data analyst") {
+            if (-not $hasProfileSignal -or $rowText -match "possible marketing|possible broad analyst|possible data analyst") {
                 return [PSCustomObject]@{ Penalty = 22; Reason = "ignored reason: not analytics enough" }
             }
         }
@@ -1083,7 +1158,7 @@ function Get-IgnoredFeedbackPenalty {
             }
         }
         "too_data_analyst" {
-            if (($rowText -match "\bdata\s*analyst\b|analyste\s+de\s+donnees|\bpython\b|\bsql\b|notebook|data\s+warehouse|possible broad analyst") -and -not $hasWebAnalyticsSignal) {
+            if (($rowText -match "\bdata\s*analyst\b|analyste\s+de\s+donnees|\bpython\b|\bsql\b|notebook|data\s+warehouse|possible broad analyst") -and -not $hasProfileSignal) {
                 return [PSCustomObject]@{ Penalty = 24; Reason = "ignored reason: data analyst" }
             }
         }
@@ -1093,7 +1168,7 @@ function Get-IgnoredFeedbackPenalty {
             }
         }
         "too_bi_reporting" {
-            if (($rowText -match "\bbi\b|business\s+intelligence|power\s*bi|tableau|dashboard|reporting|looker|data\s+studio|tableau\s+de\s+bord") -and -not $hasWebAnalyticsSignal) {
+            if (($rowText -match "\bbi\b|business\s+intelligence|power\s*bi|tableau|dashboard|reporting|looker|data\s+studio|tableau\s+de\s+bord") -and -not $hasProfileSignal) {
                 return [PSCustomObject]@{ Penalty = 20; Reason = "ignored reason: BI/reporting" }
             }
         }
@@ -1108,7 +1183,7 @@ function Get-IgnoredFeedbackPenalty {
             }
         }
         "too_product_analytics" {
-            if (($rowText -match "product\s+analyst|product\s+analytics|amplitude|mixpanel|heap") -and -not $hasWebAnalyticsSignal) {
+            if (($rowText -match "product\s+analyst|product\s+analytics|amplitude|mixpanel|heap") -and -not $hasProfileSignal) {
                 return [PSCustomObject]@{ Penalty = 16; Reason = "ignored reason: product analytics" }
             }
         }

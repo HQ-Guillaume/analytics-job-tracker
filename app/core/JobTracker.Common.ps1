@@ -163,7 +163,6 @@ function Get-JobTrackerIgnoreReasonOptions {
         "ignore_reason=too_bi_reporting; detail=",
         "ignore_reason=too_crm_emailing; detail=",
         "ignore_reason=too_content_social; detail=",
-        "ignore_reason=too_product_analytics; detail=",
         "ignore_reason=too_managerial; detail=",
         "ignore_reason=agency_consulting_esn; detail=",
         "ignore_reason=wrong_seniority; detail=",

@@ -4,13 +4,13 @@ param()
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
-. (Join-Path $projectRoot "JobTracker.Common.ps1")
-. (Join-Path $projectRoot "app\JobTracker.Config.ps1")
-. (Join-Path $projectRoot "app\JobTracker.Runtime.ps1")
-. (Join-Path $projectRoot "app\JobTracker.Scoring.ps1")
-. (Join-Path $projectRoot "app\JobTracker.Deduplication.ps1")
-. (Join-Path $projectRoot "app\JobTracker.Excel.ps1")
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $projectRoot "app\core\JobTracker.Common.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Config.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Runtime.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Scoring.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Deduplication.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Excel.ps1")
 . (Join-Path $projectRoot "app\sources\Source.Wttj.ps1")
 
 function Assert-Integration {
@@ -45,11 +45,30 @@ $script:Cutoff = [DateTimeOffset]::Now.AddDays(-7)
 $script:CutoffDate = $script:Cutoff.ToString("yyyy-MM-dd")
 $script:MinimumMatchScore = [int](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "thresholds.minimum_match_score" -DefaultValue 35)
 
+Assert-Integration -Condition ($script:JobCrawlerConfig.Profile.Id -eq "digital_analytics") -Message "Expected Digital Analytics to remain the default profile."
+Assert-Integration -Condition (@(Get-ConfigStringArray (Get-ConfigPathValue -Object $script:JobCrawlerSourcesConfig -Path "queries.linkedin" -DefaultValue @())).Count -gt 0) -Message "Expected profile-level LinkedIn queries to merge into sources config."
+Assert-Integration -Condition (@(Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "positive_signals" -DefaultValue @()).Count -gt 0) -Message "Expected profile-level positive matching signals."
+
 $sources = @(Get-JobCrawlerSourceDefinitions -SourcesConfig $script:JobCrawlerSourcesConfig)
 Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "linkedin" -and $_.CrawlFunction -eq "Get-LinkedInJobs" }).Count -eq 1) -Message "Expected LinkedIn source registry metadata."
 Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "wttj_public" -and $_.FallbackFor -eq "welcome_kit" }).Count -eq 1) -Message "Expected WTTJ fallback relationship in source registry."
 Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "wttj_public" -and $_.SkipSwitch -eq "DisableWttjPublicFallback" }).Count -eq 1) -Message "Expected WTTJ public fallback to have its own skip switch."
 Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "welcome_kit" -and $_.SkipSwitch -eq "DisableWelcomeKit" }).Count -eq 1) -Message "Expected WelcomeKit to have its own skip switch."
+
+$customSourcesConfig = [PSCustomObject]@{
+    source_order = @("custom_board")
+    sources      = [PSCustomObject]@{
+        custom_board = [PSCustomObject]@{
+            label                = "Custom board"
+            short_label          = "Custom"
+            enabled_by_default   = $true
+            requires_credentials = $false
+            crawl_function       = "Get-CustomJobs"
+        }
+    }
+}
+$customSources = @(Get-JobCrawlerSourceDefinitions -SourcesConfig $customSourcesConfig)
+Assert-Integration -Condition ($customSources.Count -eq 1 -and $customSources[0].Key -eq "custom_board" -and $customSources[0].CrawlFunction -eq "Get-CustomJobs") -Message "Expected custom config-defined source metadata without code changes."
 
 $match = Get-JobMatch -Title "Web Analyst" -Text "Google Tag Manager GA4 ContentSquare dataLayer"
 $rows = @(
@@ -59,6 +78,26 @@ $rows = @(
 $merge = Merge-JobsWithTracker -CurrentRows $rows -ExistingRows @() -Path "integration.xlsx" -SkipBackup
 Assert-Integration -Condition (@($merge.TrackerRows).Count -eq 1) -Message "Expected similar cross-platform rows to merge."
 Assert-Integration -Condition ((Get-RowValue -Row $merge.TrackerRows[0] -Name "source_count") -eq "2") -Message "Expected merged source count to be 2."
+
+$oldCurrentRow = New-JobResult -Title "Web Analyst" -CompanyName "Old Company" -JobLocation "Paris" -ContractType "CDI" -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url "https://example.test/old-job" -Platform "Test" -PublishedAt ([DateTimeOffset]::Now.AddDays(-8)) -SourceText "GA4 Google Tag Manager"
+$oldCurrentMerge = Merge-JobsWithTracker -CurrentRows @($oldCurrentRow) -ExistingRows @() -Path "integration.xlsx" -SkipBackup
+Assert-Integration -Condition (@($oldCurrentMerge.TrackerRows).Count -eq 0 -and [int]$oldCurrentMerge.RemovedCount -eq 0) -Message "Expected current rows outside the published-date retention window to be rejected at merge time without counting as removed tracker rows."
+
+$existingCddRow = New-OrderedJobRecord @{
+    status         = "ignored"
+    job_title      = "Web Analyst"
+    company_name   = "CDD Company"
+    location       = "Paris"
+    contract_type  = "CDD"
+    match_score    = "80"
+    match_level    = "High"
+    job_url_raw    = "https://example.test/cdd-existing"
+    platform       = "LinkedIn"
+    published_date = ([DateTimeOffset]::Now.ToString("yyyy-MM-dd"))
+}
+$currentBlankContractRow = New-JobResult -Title "Web Analyst" -CompanyName "CDD Company" -JobLocation "Paris" -ContractType "" -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url "https://example.test/cdd-current" -Platform "Test" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager"
+$excludedContractMerge = Merge-JobsWithTracker -CurrentRows @($currentBlankContractRow) -ExistingRows @($existingCddRow) -Path "integration.xlsx" -SkipBackup
+Assert-Integration -Condition (@($excludedContractMerge.TrackerRows).Count -eq 0 -and [int]$excludedContractMerge.RemovedCount -eq 1) -Message "Expected excluded existing contract values not to leak back into current non-application rows."
 
 $foreignExistingWttjRow = New-OrderedJobRecord @{
     status         = "ignored"

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [int]$DaysBack = 7,
     [string]$Location = "France",
@@ -21,6 +21,9 @@ param(
     [int]$MaxWelcomeKitPages = 10,
     [int]$MaxWttjCandidatePages = 120,
     [int]$MaxBackups = 5,
+    [string]$Profile = "",
+    [string[]]$EnableSource = @(),
+    [string[]]$SkipSource = @(),
     [switch]$SkipFranceTravail,
     [switch]$SkipAdzuna,
     [switch]$SkipApec,
@@ -44,24 +47,28 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "JobTracker.Common.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Config.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Runtime.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Scoring.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Deduplication.ps1")
-. (Join-Path $PSScriptRoot "app\JobTracker.Excel.ps1")
-. (Join-Path $PSScriptRoot "app\sources\Source.FranceTravail.ps1")
-. (Join-Path $PSScriptRoot "app\sources\Source.Adzuna.ps1")
-. (Join-Path $PSScriptRoot "app\sources\Source.Apec.ps1")
-. (Join-Path $PSScriptRoot "app\sources\Source.HelloWork.ps1")
-. (Join-Path $PSScriptRoot "app\sources\Source.Wttj.ps1")
-. (Join-Path $PSScriptRoot "app\sources\Source.LinkedIn.ps1")
-. (Join-Path $PSScriptRoot "app\dev\JobTracker.SelfTest.ps1")
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$CoreRoot = Join-Path $ProjectRoot "app\core"
+$SourcesRoot = Join-Path $ProjectRoot "app\sources"
+
+. (Join-Path $CoreRoot "JobTracker.Common.ps1")
+. (Join-Path $CoreRoot "JobTracker.Config.ps1")
+. (Join-Path $CoreRoot "JobTracker.Runtime.ps1")
+. (Join-Path $CoreRoot "JobTracker.Scoring.ps1")
+. (Join-Path $CoreRoot "JobTracker.Deduplication.ps1")
+. (Join-Path $CoreRoot "JobTracker.Excel.ps1")
+. (Join-Path $SourcesRoot "Source.FranceTravail.ps1")
+. (Join-Path $SourcesRoot "Source.Adzuna.ps1")
+. (Join-Path $SourcesRoot "Source.Apec.ps1")
+. (Join-Path $SourcesRoot "Source.HelloWork.ps1")
+. (Join-Path $SourcesRoot "Source.Wttj.ps1")
+. (Join-Path $SourcesRoot "Source.LinkedIn.ps1")
+. (Join-Path $CoreRoot "JobTracker.SelfTest.ps1")
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$configPath = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path $ConfigDirectory
-$JobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath
+$configPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path $ConfigDirectory
+$JobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath -ProfileId $Profile
 $JobCrawlerRuntimeConfig = $JobCrawlerConfig.Runtime
 $JobCrawlerSourcesConfig = $JobCrawlerConfig.Sources
 $JobCrawlerMatchingRules = $JobCrawlerConfig.MatchingRules
@@ -92,14 +99,50 @@ if (-not $PSBoundParameters.ContainsKey("FranceTravailScope")) {
 if (-not $PSBoundParameters.ContainsKey("AdzunaAppId")) { $AdzunaAppId = Get-JobCrawlerCredentialValue -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "adzuna" -CredentialKey "app_id" -FallbackValue $AdzunaAppId }
 if (-not $PSBoundParameters.ContainsKey("AdzunaAppKey")) { $AdzunaAppKey = Get-JobCrawlerCredentialValue -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "adzuna" -CredentialKey "app_key" -FallbackValue $AdzunaAppKey }
 
+function ConvertTo-JobCrawlerSourceKeySet {
+    param([AllowNull()][string[]]$SourceKeys)
+
+    $set = @{}
+    foreach ($sourceKeyValue in @($SourceKeys)) {
+        foreach ($sourceKeyPart in @(([string]$sourceKeyValue) -split ",")) {
+            $sourceKey = ConvertTo-JobCrawlerProfileId $sourceKeyPart
+            if (-not [string]::IsNullOrWhiteSpace($sourceKey)) {
+                $set[$sourceKey] = $true
+            }
+        }
+    }
+
+    return $set
+}
+
 $SourceDefinitions = @(Get-JobCrawlerSourceDefinitions -SourcesConfig $JobCrawlerSourcesConfig)
+$EnabledSourceKeys = ConvertTo-JobCrawlerSourceKeySet -SourceKeys $EnableSource
+$SkippedSourceKeys = ConvertTo-JobCrawlerSourceKeySet -SourceKeys $SkipSource
+$KnownSourceKeys = @{}
+foreach ($source in $SourceDefinitions) {
+    $KnownSourceKeys[(ConvertTo-JobCrawlerProfileId ([string]$source.Key))] = $true
+}
+$requestedSourceKeys = @((@($EnabledSourceKeys.Keys) + @($SkippedSourceKeys.Keys)) | Select-Object -Unique)
+foreach ($sourceKey in $requestedSourceKeys) {
+    if (-not $KnownSourceKeys.ContainsKey($sourceKey)) {
+        Write-Warning ("Unknown source key '{0}'. Configure it in config\sources.json before using -EnableSource/-SkipSource." -f $sourceKey)
+    }
+}
+
 $SourceEnabled = @{}
 foreach ($source in $SourceDefinitions) {
+    $normalizedSourceKey = ConvertTo-JobCrawlerProfileId ([string]$source.Key)
     $enabled = [bool]$source.EnabledByDefault
+    if ($EnabledSourceKeys.ContainsKey($normalizedSourceKey)) {
+        $enabled = $true
+    }
     if (-not [string]::IsNullOrWhiteSpace([string]$source.EnableSwitch) -and $PSBoundParameters.ContainsKey([string]$source.EnableSwitch)) {
         $enabled = $true
     }
     if ($SkipWttj -and ([string]$source.Key -in @("wttj_public", "welcome_kit"))) {
+        $enabled = $false
+    }
+    if ($SkippedSourceKeys.ContainsKey($normalizedSourceKey)) {
         $enabled = $false
     }
     if (-not [string]::IsNullOrWhiteSpace([string]$source.SkipSwitch)) {
@@ -112,11 +155,8 @@ foreach ($source in $SourceDefinitions) {
     $SourceEnabled[[string]$source.Key] = $enabled
 }
 
-$FranceTravailEnabled = [bool]$SourceEnabled["france_travail"]
-$AdzunaEnabled = [bool]$SourceEnabled["adzuna"]
-$WelcomeKitEnabled = [bool]$SourceEnabled["welcome_kit"]
-$WttjPublicEnabled = [bool]$SourceEnabled["wttj_public"]
-if (-not $WelcomeKitEnabled) { $WelcomeKitApiKey = "" }
+$welcomeKitSourceEnabled = [bool]$SourceEnabled["welcome_kit"]
+if (-not $welcomeKitSourceEnabled) { $WelcomeKitApiKey = "" }
 
 $modeConfig = Get-ConfigPathValue -Object $JobCrawlerConfig.CrawlModes -Path ("modes.{0}" -f $CrawlMode) -DefaultValue $null
 if ($null -eq $modeConfig) {
@@ -148,9 +188,9 @@ $Cutoff = [DateTimeOffset]::Now.AddDays(-[Math]::Abs($DaysBack))
 $CutoffDate = $Cutoff.ToString("yyyy-MM-dd")
 $RunDate = Get-Date -Format "yyyy-MM-dd"
 $RunStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$DefaultTrackerPath = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
-$CacheDirectory = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_directory" -DefaultValue "output\cache"))
-$RunHistoryPath = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.run_history_path" -DefaultValue "output\run_history.jsonl"))
+$DefaultTrackerPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
+$CacheDirectory = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_directory" -DefaultValue "output\cache"))
+$RunHistoryPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.run_history_path" -DefaultValue "output\run_history.jsonl"))
 $RunHistoryMaxEntries = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.run_history_max_entries" -DefaultValue 250)
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
@@ -172,7 +212,11 @@ $FeedbackLearningProfile = $null
 $SourceRunStats = New-Object System.Collections.Generic.List[object]
 
 $WttjUrlCandidatePattern = [string](Get-ConfigPathValue -Object $JobCrawlerSourcesConfig -Path "patterns.wttj_url_candidate" -DefaultValue "")
-$LinkedInQueries = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $JobCrawlerSourcesConfig -Path "queries.linkedin" -DefaultValue @()))
+$LinkedInQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "linkedin" -FallbackKeys @("api"))
+$HelloWorkQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "hellowork" -FallbackKeys @("api"))
+$ApecQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "apec" -FallbackKeys @("api"))
+$FranceTravailQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "france_travail" -FallbackKeys @("api"))
+$AdzunaQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "adzuna" -FallbackKeys @("api"))
 $ApiSearchQueries = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $JobCrawlerSourcesConfig -Path "queries.api" -DefaultValue @()))
 
 
@@ -336,8 +380,9 @@ if ($SelfTest) {
     return
 }
 
-Set-RunWindowTitle "Analytics Job Crawler - Starting"
+Set-RunWindowTitle "Job Crawler - Starting"
 Write-RunStatus ("Starting crawl for jobs published since {0}." -f $CutoffDate)
+Write-RunStatus ("Profile: {0} ({1})" -f $JobCrawlerConfig.Profile.Label, $JobCrawlerConfig.Profile.Id)
 Write-RunStatus ("Tracker file: {0}" -f $TrackerPath)
 
 $cachePruneResult = [PSCustomObject]@{ RemovedFiles = 0; RemovedBytes = 0; RemainingBytes = 0 }
@@ -367,7 +412,7 @@ foreach ($source in $SourceDefinitions) {
         continue
     }
 
-    if ($sourceKey -eq "wttj_public" -and $WelcomeKitEnabled -and -not [string]::IsNullOrWhiteSpace($WelcomeKitApiKey)) {
+    if ($sourceKey -eq "wttj_public" -and $welcomeKitSourceEnabled -and -not [string]::IsNullOrWhiteSpace($WelcomeKitApiKey)) {
         Write-RunStatus "Skipping WTTJ public fallback because WelcomeKit API is enabled and configured."
         continue
     }
@@ -377,8 +422,14 @@ foreach ($source in $SourceDefinitions) {
 
 $sortedCrawlResults = $allResults |
     Sort-Object -Property @{ Expression = "match_score"; Descending = $true }, @{ Expression = "published_date"; Descending = $true }, platform, job_title
-$filteredCrawlResults = @($sortedCrawlResults | Where-Object { -not (Test-IsExcludedContractType (Get-RowValue -Row $_ -Name "contract_type")) })
-$excludedContractCount = @($sortedCrawlResults).Count - @($filteredCrawlResults).Count
+$recentCrawlResults = @($sortedCrawlResults | Where-Object { Test-IsRecentTrackerRow $_ })
+$excludedOldCount = @($sortedCrawlResults).Count - @($recentCrawlResults).Count
+$filteredCrawlResults = @($recentCrawlResults | Where-Object { -not (Test-IsExcludedContractType (Get-RowValue -Row $_ -Name "contract_type")) })
+$excludedContractCount = @($recentCrawlResults).Count - @($filteredCrawlResults).Count
+
+if ($excludedOldCount -gt 0) {
+    Write-RunStatus ("Excluded {0} job(s) outside the published-date window after detail enrichment." -f $excludedOldCount)
+}
 
 if ($excludedContractCount -gt 0) {
     Write-RunStatus ("Excluded {0} CDD/apprenticeship/internship/freelance job(s) from this crawl." -f $excludedContractCount)
@@ -386,15 +437,22 @@ if ($excludedContractCount -gt 0) {
 
 $diagnosticPath = ""
 if ($DiagnosticMode) {
-    $diagnosticDirectory = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.diagnostics_directory" -DefaultValue "output\diagnostics"))
+    $diagnosticDirectory = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.diagnostics_directory" -DefaultValue "output\diagnostics"))
     if (-not (Test-Path -LiteralPath $diagnosticDirectory)) {
         New-Item -ItemType Directory -Force -Path $diagnosticDirectory | Out-Null
     }
     $diagnosticPath = Join-Path $diagnosticDirectory ("crawl_diagnostics_{0}.csv" -f $RunStamp)
     $diagnosticRows = @($sortedCrawlResults | ForEach-Object {
         $contractType = Get-RowValue -Row $_ -Name "contract_type"
+        $diagnosticStatus = "kept_for_merge"
+        if (-not (Test-IsRecentTrackerRow $_)) {
+            $diagnosticStatus = "excluded_old"
+        }
+        elseif (Test-IsExcludedContractType $contractType) {
+            $diagnosticStatus = "excluded_contract"
+        }
         [PSCustomObject]@{
-            diagnostic_status = $(if (Test-IsExcludedContractType $contractType) { "excluded_contract" } else { "kept_for_merge" })
+            diagnostic_status = $diagnosticStatus
             platform          = Get-RowValue -Row $_ -Name "platform"
             match_level       = Get-RowValue -Row $_ -Name "match_level"
             match_score       = Get-RowValue -Row $_ -Name "match_score"
@@ -429,6 +487,7 @@ $crawlCaps = @(
 ) -join " | "
 
 $crawlSummary = @{
+    Profile = ("{0} ({1})" -f $JobCrawlerConfig.Profile.Label, $JobCrawlerConfig.Profile.Id)
     TotalMatched = @($sortedCrawlResults).Count
     ExcludedContractCount = $excludedContractCount
     CurrentCount = @($mergeResult.CurrentRows).Count
@@ -454,7 +513,7 @@ if (-not $DryRun) {
 
 Write-RunHistoryEntry -Summary $crawlSummary -Path $RunHistoryPath -MaxEntries $RunHistoryMaxEntries
 
-Set-RunWindowTitle "Analytics Job Crawler - Finished"
+Set-RunWindowTitle "Job Crawler - Finished"
 Write-Host ""
 if ($DryRun) {
     Write-RunStatus ("Dry run complete. Workbook was not written. Simulated tracker rows: {0}; current jobs: {1}; preserved application rows: {2}; removed by retention: {3}." -f @($finalResults).Count, @($mergeResult.CurrentRows).Count, $mergeResult.PreservedAppliedCount, $mergeResult.RemovedCount)

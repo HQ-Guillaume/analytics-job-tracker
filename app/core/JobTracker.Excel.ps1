@@ -1,4 +1,6 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot "JobTracker.OpenXml.ps1")) {
+    . (Join-Path $PSScriptRoot "JobTracker.OpenXml.ps1")
+}
 
 function ConvertTo-ExcelHyperlinkFormula {
     param(
@@ -36,7 +38,31 @@ function New-OrderedJobRecord {
     return [PSCustomObject]$ordered
 }
 
-function Import-TrackerRowsFromXlsx {
+function Test-ExcelComWorkbookBackendAvailable {
+    $excel = $null
+    try {
+        $excel = New-Object -ComObject Excel.Application
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($null -ne $excel) {
+            try {
+                $excel.DisplayAlerts = $false
+                $excel.Quit() | Out-Null
+            }
+            catch {
+            }
+            Release-ComObject $excel
+            [GC]::Collect()
+            [GC]::WaitForPendingFinalizers()
+        }
+    }
+}
+
+function Import-TrackerRowsFromExcelComXlsx {
     param([string]$Path)
 
     $excel = $null
@@ -109,6 +135,25 @@ function Import-TrackerRowsFromXlsx {
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
     }
+}
+
+function Import-TrackerRowsFromXlsx {
+    param([string]$Path)
+
+    if (Test-ExcelComWorkbookBackendAvailable) {
+        try {
+            return @(Import-TrackerRowsFromExcelComXlsx -Path $Path)
+        }
+        catch {
+            Write-Warning ("Excel COM could not read tracker workbook; trying no-Excel OpenXML reader: {0}" -f $_.Exception.Message)
+        }
+    }
+
+    if (Get-Command Import-TrackerRowsFromOpenXmlXlsx -ErrorAction SilentlyContinue) {
+        return @(Import-TrackerRowsFromOpenXmlXlsx -Path $Path)
+    }
+
+    throw "Desktop Excel is not available and the OpenXML reader is not loaded."
 }
 
 function Get-SummaryValue {
@@ -247,7 +292,7 @@ function Write-ObjectListSheet {
     $Sheet.Range($Sheet.Cells.Item(3, 1), $Sheet.Cells.Item($rowsArray.Count + 3, $properties.Count)).Borders.Color = Get-ExcelColor 226 232 240
 }
 
-function Export-TrackerWorkbook {
+function Export-TrackerWorkbookWithExcelCom {
     param(
         [object[]]$Rows,
         [string]$Path,
@@ -449,7 +494,7 @@ function Export-TrackerWorkbook {
         $excel.ActiveWindow.FreezePanes = $true
         $excel.ActiveWindow.DisplayGridlines = $false
 
-        $summarySheet.Cells.Item(1, 1).Value2 = "Analytics Job Tracker"
+        $summarySheet.Cells.Item(1, 1).Value2 = "Job Tracker"
         $summarySheet.Cells.Item(1, 1).Font.Bold = $true
         $summarySheet.Cells.Item(1, 1).Font.Size = 16
         $summarySheet.Cells.Font.Name = "Segoe UI"
@@ -486,6 +531,7 @@ function Export-TrackerWorkbook {
         ) -join " | "
         $summaryPairs = @(
             @("Generated", $RunStamp),
+            @("Profile", (Get-SummaryValue -Summary $Summary -Name "Profile")),
             @("Crawl mode", $CrawlMode),
             @("Retention rule", "Keep non-application jobs only when Published is on or after $CutoffDate."),
             @("Rows in workbook", [string](@($Rows).Count)),
@@ -506,6 +552,7 @@ function Export-TrackerWorkbook {
             @("Run history", (Get-SummaryValue -Summary $Summary -Name "RunHistoryPath")),
             @("Backup", (Get-SummaryValue -Summary $Summary -Name "BackupPath")),
             @("Tracker", $fullPath),
+            @("Workbook writer", (Get-SummaryValue -Summary $Summary -Name "WorkbookWriter")),
             @("Manual fields", "Status, Applied date, Apply notes with ignore_reason templates"),
             @("Reminder", "Close this workbook before launching the crawler.")
         )
@@ -550,7 +597,29 @@ function Export-TrackerWorkbook {
                 }) -join " | "
             }
         }
+        $getScriptArrayCount = {
+            param([string]$Name)
+
+            $variable = Get-Variable -Name $Name -Scope Script -ErrorAction SilentlyContinue
+            if ($null -eq $variable) {
+                return 0
+            }
+
+            return @($variable.Value).Count
+        }
+        $sourceQuerySummary = "Not loaded"
+        if ((& $getScriptArrayCount "LinkedInQueries") -gt 0) {
+            $sourceQuerySummary = @(
+                "LinkedIn {0}" -f (& $getScriptArrayCount "LinkedInQueries"),
+                "HelloWork {0}" -f (& $getScriptArrayCount "HelloWorkQueries"),
+                "APEC {0}" -f (& $getScriptArrayCount "ApecQueries"),
+                "France Travail {0}" -f (& $getScriptArrayCount "FranceTravailQueries"),
+                "Adzuna {0}" -f (& $getScriptArrayCount "AdzunaQueries"),
+                "API fallback {0}" -f (& $getScriptArrayCount "ApiSearchQueries")
+            ) -join " | "
+        }
         $settingsPairs = @(
+            @("Profile", (Get-SummaryValue -Summary $Summary -Name "Profile")),
             @("Crawl mode", $CrawlMode),
             @("Days back", [string]$DaysBack),
             @("Location", $Location),
@@ -566,8 +635,8 @@ function Export-TrackerWorkbook {
             @("Crawl caps", (Get-SummaryValue -Summary $Summary -Name "CrawlCaps")),
             @("Run history", (Get-SummaryValue -Summary $Summary -Name "RunHistoryPath")),
             @("Credential status", $credentialSummary),
-            @("LinkedIn queries", [string](@($LinkedInQueries).Count)),
-            @("API queries", [string](@($ApiSearchQueries).Count)),
+            @("Source queries", $sourceQuerySummary),
+            @("Workbook writer", (Get-SummaryValue -Summary $Summary -Name "WorkbookWriter")),
             @("Matching threshold", [string]$MinimumMatchScore)
         )
         Write-KeyValueSheet -Sheet $settingsSheet -Title "Settings" -Pairs $settingsPairs
@@ -607,6 +676,127 @@ function Export-TrackerWorkbook {
         Release-ComObject $excel
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
+    }
+}
+
+function Set-WorkbookSummaryValue {
+    param(
+        [AllowNull()]$Summary,
+        [string]$Name,
+        [AllowNull()][string]$Value
+    )
+
+    if ($null -eq $Summary -or [string]::IsNullOrWhiteSpace($Name)) {
+        return
+    }
+
+    if ($Summary -is [Collections.IDictionary]) {
+        $Summary[$Name] = $Value
+        return
+    }
+
+    $property = $Summary.PSObject.Properties[$Name]
+    if ($null -ne $property) {
+        $property.Value = $Value
+    }
+    else {
+        $Summary | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+    }
+}
+
+function Get-WorkbookOutputBackend {
+    $backend = "auto"
+    if (Get-Command Get-ConfigPathValue -ErrorAction SilentlyContinue) {
+        $backend = [string](Get-ConfigPathValue -Object $script:JobCrawlerWorkbookConfig -Path "output_backend" -DefaultValue "auto")
+    }
+    if ([string]::IsNullOrWhiteSpace($backend)) {
+        $backend = "auto"
+    }
+    $backend = $backend.Trim().ToLowerInvariant()
+    if ($backend -notin @("auto", "excel", "openxml")) {
+        Write-Warning ("Unknown workbook output_backend '{0}', using auto." -f $backend)
+        $backend = "auto"
+    }
+
+    return $backend
+}
+
+function Test-WorkbookHtmlFallbackEnabled {
+    if (Get-Command Get-ConfigPathValue -ErrorAction SilentlyContinue) {
+        $value = Get-ConfigPathValue -Object $script:JobCrawlerWorkbookConfig -Path "html_fallback_enabled" -DefaultValue $true
+        if (Get-Command ConvertTo-ConfigBoolean -ErrorAction SilentlyContinue) {
+            return ConvertTo-ConfigBoolean -Value $value -DefaultValue $true
+        }
+        return [bool]$value
+    }
+
+    return $true
+}
+
+function Write-WorkbookExportStatus {
+    param([string]$Message)
+
+    if (Get-Command Write-RunStatus -ErrorAction SilentlyContinue) {
+        Write-RunStatus $Message
+    }
+    else {
+        Write-Host $Message
+    }
+}
+
+function Export-TrackerWorkbook {
+    param(
+        [object[]]$Rows,
+        [string]$Path,
+        [AllowNull()]$Summary = $null
+    )
+
+    $backend = Get-WorkbookOutputBackend
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $script:LastWorkbookExportResult = $null
+
+    if ($backend -in @("auto", "excel")) {
+        if (Test-ExcelComWorkbookBackendAvailable) {
+            try {
+                Set-WorkbookSummaryValue -Summary $Summary -Name "WorkbookWriter" -Value "Excel COM writer"
+                Export-TrackerWorkbookWithExcelCom -Rows $Rows -Path $Path -Summary $Summary
+                $script:LastWorkbookExportResult = [PSCustomObject]@{ Backend = "Excel"; Path = $fullPath; FallbackPath = ""; UsedFallback = $false }
+                Write-WorkbookExportStatus ("Workbook writer: Excel COM -> {0}" -f $fullPath)
+                return
+            }
+            catch {
+                if ($backend -eq "excel") {
+                    throw
+                }
+                Write-Warning ("Excel COM workbook writer failed; falling back to no-Excel OpenXML writer: {0}" -f $_.Exception.Message)
+            }
+        }
+        elseif ($backend -eq "excel") {
+            throw "Workbook output_backend is 'excel', but desktop Excel COM automation is not available."
+        }
+        else {
+            Write-WorkbookExportStatus "Workbook writer: desktop Excel not detected, using no-Excel OpenXML writer."
+        }
+    }
+
+    if ($backend -in @("auto", "openxml")) {
+        try {
+            if (-not (Get-Command Export-TrackerWorkbookWithOpenXml -ErrorAction SilentlyContinue)) {
+                throw "OpenXML writer module is not loaded."
+            }
+            Set-WorkbookSummaryValue -Summary $Summary -Name "WorkbookWriter" -Value "OpenXML no-Excel writer"
+            Export-TrackerWorkbookWithOpenXml -Rows $Rows -Path $Path -Summary $Summary
+            Write-WorkbookExportStatus ("Workbook writer: OpenXML no-Excel -> {0}" -f $fullPath)
+            return
+        }
+        catch {
+            $openXmlError = $_
+            if ((Test-WorkbookHtmlFallbackEnabled) -and (Get-Command Export-TrackerHtmlReport -ErrorAction SilentlyContinue)) {
+                $htmlPath = Export-TrackerHtmlReport -Rows $Rows -Path $Path -Summary $Summary -Reason $openXmlError.Exception.Message
+                throw ("XLSX export failed. A readable HTML fallback was written to {0}. Root error: {1}" -f $htmlPath, $openXmlError.Exception.Message)
+            }
+            throw
+        }
     }
 }
 

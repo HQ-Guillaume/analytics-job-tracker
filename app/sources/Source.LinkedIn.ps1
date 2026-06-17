@@ -1,5 +1,3 @@
-﻿# Auto-extracted from Find-AnalyticsJobs.ps1. Keep dot-sourced execution order in the main script.
-
 function Get-LinkedInContractType {
     param(
         [AllowNull()][string]$Title,
@@ -50,7 +48,7 @@ function Get-LinkedInLocationFromHtml {
 }
 
 function Get-LinkedInJobs {
-    Set-RunWindowTitle "Analytics Job Crawler - LinkedIn"
+    Set-RunWindowTitle "Job Crawler - LinkedIn"
     Write-RunStatus "Collecting LinkedIn jobs from public guest endpoints..."
     Write-RunStatus ("LinkedIn plan: {0} search query/queries, up to {1} page(s) each, then up to {2} ranked detail page(s)." -f $LinkedInQueries.Count, $MaxLinkedInSearchPages, $(if ($MaxLinkedInDetails -gt 0) { $MaxLinkedInDetails } else { "all" }))
     $stats = Start-SourceStats "LinkedIn"

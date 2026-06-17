@@ -4,8 +4,8 @@ param()
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
-. (Join-Path $projectRoot "Find-AnalyticsJobs.ps1") -SelfTest
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. (Join-Path $projectRoot "app\cli\Find-AnalyticsJobs.ps1") -SelfTest
 
 function Assert-Fixture {
     param(
@@ -18,7 +18,7 @@ function Assert-Fixture {
     }
 }
 
-$fixtureRoot = Join-Path $PSScriptRoot "tests\fixtures"
+$fixtureRoot = Join-Path $PSScriptRoot "fixtures"
 
 $helloWorkCard = Get-Content -LiteralPath (Join-Path $fixtureRoot "hellowork-card.html") -Raw
 $helloWorkStats = Start-SourceStats "HelloWork fixture"
