@@ -65,7 +65,7 @@ Close `jobs_tracker.xlsx` before launching the crawler so Excel does not lock th
 ## First Run
 
 1. Download or clone the repository.
-2. Double-click `Run-AnalyticsJobCrawler-GUI.cmd`.
+2. Double-click `Run-AnalyticsJobCrawler-GUI.vbs`.
 3. Keep the default public sources enabled, or add credentials for optional API sources.
 4. Click `Create tracker` to create an empty workbook, or click `Run crawl` to create and populate it.
 5. Use `output\jobs_tracker.xlsx` as your private tracker.
@@ -74,7 +74,13 @@ The public release does not include a real tracker workbook. Each user creates t
 
 ## Launch
 
-Recommended: double-click the WinForms launcher:
+Recommended: double-click the no-console WinForms launcher:
+
+```text
+Run-AnalyticsJobCrawler-GUI.vbs
+```
+
+Fallback if Windows blocks `.vbs` files: double-click the command launcher:
 
 ```text
 Run-AnalyticsJobCrawler-GUI.cmd
