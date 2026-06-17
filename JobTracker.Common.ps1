@@ -137,10 +137,24 @@ function Get-JobTrackerHiddenWorkbookColumns {
 }
 
 function Get-JobTrackerStatusOptions {
+    if (Get-Command Get-ConfigPathValue -ErrorAction SilentlyContinue) {
+        $configured = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $script:JobCrawlerWorkbookConfig -Path "status_options" -DefaultValue @()))
+        if ($configured.Count -gt 0) {
+            return @($configured)
+        }
+    }
+
     return @("new", "interesting", "ignored", "applied", "interview", "offer", "rejected", "withdrawn")
 }
 
 function Get-JobTrackerIgnoreReasonOptions {
+    if (Get-Command Get-ConfigPathValue -ErrorAction SilentlyContinue) {
+        $configured = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $script:JobCrawlerWorkbookConfig -Path "ignore_reason_options" -DefaultValue @()))
+        if ($configured.Count -gt 0) {
+            return @($configured)
+        }
+    }
+
     return @(
         "ignore_reason=not_analytics_enough; detail=",
         "ignore_reason=too_seo_sea_marketing; detail=",

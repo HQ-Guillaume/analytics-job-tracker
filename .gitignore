@@ -9,14 +9,16 @@ output/
 .env.*
 *.secret
 *.key
+config/local*.json
+config/local/
 
 # PowerShell and Windows local artifacts
 *.log
 *.tmp
+dist/
 Thumbs.db
 Desktop.ini
 
 # Editor folders
 .vscode/
 .idea/
-

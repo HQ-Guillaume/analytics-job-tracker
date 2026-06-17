@@ -7,10 +7,11 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "JobTracker.Common.ps1")
+$projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $projectRoot "JobTracker.Common.ps1")
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Join-Path $PSScriptRoot "output\jobs_tracker.xlsx"
+    $TrackerPath = Join-Path $projectRoot "output\jobs_tracker.xlsx"
 }
 
 $errors = New-Object System.Collections.Generic.List[string]
@@ -64,6 +65,14 @@ try {
     }
     catch {
         Add-HealthWarning "Missing Summary sheet."
+    }
+    foreach ($optionalSheetName in @("Settings", "Source Health", "Feedback Quality")) {
+        try {
+            $null = $workbook.Worksheets.Item($optionalSheetName)
+        }
+        catch {
+            Add-HealthWarning ("Missing {0} sheet. Run a full crawl to regenerate the latest workbook structure." -f $optionalSheetName)
+        }
     }
 
     if ($null -ne $jobsSheet) {

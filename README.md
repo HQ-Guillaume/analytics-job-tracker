@@ -2,6 +2,15 @@
 
 Rolling crawler and lightweight application tracker for Web/Digital Analytics jobs.
 
+This repository is designed as a clean public release. Personal tracker data, credentials, local overrides, caches, backups, diagnostics, and generated workbooks stay outside Git.
+
+## Requirements
+
+- Windows
+- Windows PowerShell 5.1
+- Desktop Microsoft Excel for workbook creation/formatting
+- Internet access for crawling public job sources
+
 ## Main File
 
 Use this single workbook:
@@ -45,11 +54,35 @@ Manual fields are `Status`, `Applied date`, and `Apply notes`. `Apply notes` has
 
 `Summary` contains the latest crawl report, including the crawl mode, published-date retention rule, match levels, employer-type distribution, source diagnostics, fit demotions, and backup path.
 
+Additional sheets:
+
+- `Settings`: active mode, caps, config path, cache path, credentials detected/missing, query counts
+- `Source Health`: per-platform duration, requests, cache hits, skipped counts, errors, matches
+- `Feedback Quality`: ignored rows missing structured notes, application rows missing dates, and other feedback hygiene checks
+
 Close `jobs_tracker.xlsx` before launching the crawler so Excel does not lock the file.
+
+## First Run
+
+1. Download or clone the repository.
+2. Double-click `Run-AnalyticsJobCrawler-GUI.cmd`.
+3. Keep the default public sources enabled, or add credentials for optional API sources.
+4. Click `Create tracker` to create an empty workbook, or click `Run crawl` to create and populate it.
+5. Use `output\jobs_tracker.xlsx` as your private tracker.
+
+The public release does not include a real tracker workbook. Each user creates their own local workbook.
 
 ## Launch
 
-Double-click:
+Recommended: double-click the WinForms launcher:
+
+```text
+Run-AnalyticsJobCrawler-GUI.cmd
+```
+
+The GUI lets you choose Fast/Default/Deep mode, enable or disable sources, run dry-run/diagnostic crawls, see live progress logs, open the tracker, and check whether credentials are configured.
+
+Command-line fallback: double-click:
 
 ```text
 Run-AnalyticsJobCrawler.cmd
@@ -72,7 +105,7 @@ Run-AnalyticsJobCrawler.cmd Deep
 or run:
 
 ```powershell
-cd "C:\Users\Guillaume\Documents\Codex\job-crawler"
+cd "path\to\analytics-job-tracker"
 powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1
 ```
 
@@ -141,7 +174,7 @@ This requires desktop Microsoft Excel.
 To check workbook health without crawling:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Test-JobTrackerHealth.ps1
+powershell -ExecutionPolicy Bypass -File .\dev-tools\Test-JobTrackerHealth.ps1
 ```
 
 The health check opens the workbook read-only and verifies the expected sheets, columns, hidden backend fields, clickable links, status values, duplicate job IDs, and status row formatting.
@@ -149,7 +182,29 @@ The health check opens the workbook read-only and verifies the expected sheets, 
 To compare a test crawl workbook against the current master:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Compare-JobTrackerWorkbooks.ps1 -CandidatePath .\output\jobs_tracker_test.xlsx
+powershell -ExecutionPolicy Bypass -File .\dev-tools\Compare-JobTrackerWorkbooks.ps1 -CandidatePath .\output\jobs_tracker_test.xlsx
+```
+
+## Public Release Privacy
+
+The repository and release assets should not contain:
+
+- `output\jobs_tracker.xlsx`, backups, cache, or diagnostics
+- CVs, resumes, screenshots with credentials, or personal application notes
+- `.env`, `.key`, `.secret`, `config\local*.json`, or `config\local\*`
+- absolute machine-specific user paths
+- real API credentials
+
+Before publishing a release, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\dev-tools\Test-ReleaseSafety.ps1
+```
+
+To create a clean zip from committed public files only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\dev-tools\New-PublicReleasePackage.ps1 -Version v1.0.0
 ```
 
 ## Matching And Ranking
@@ -183,6 +238,35 @@ You can tune fit weights and location patterns in:
 config\preferences.json
 ```
 
+More tunable values are in:
+
+```text
+config\runtime.json        # default days, location, tracker path, cache, delays
+config\crawl_modes.json    # Fast / Default / Deep source caps
+config\sources.json        # source order, endpoints, query pools, credential environment variable names
+config\matching_rules.json # matching thresholds, positive signals, negative signals, feedback-learning rules
+config\workbook.json       # status dropdowns, ignored-reason templates, sheet names
+```
+
+For private machine-specific changes, create ignored local override files instead of editing public defaults:
+
+```text
+config\local.runtime.json
+config\local.sources.json
+config\local.preferences.json
+config\local.matching_rules.json
+config\local.workbook.json
+config\local.crawl_modes.json
+```
+
+You can also use a `config\local\` folder with files such as `config\local\sources.json`. Public config is loaded first, then local overrides are merged on top.
+
+Validate config without crawling:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\dev-tools\Test-JobCrawlerConfig.ps1
+```
+
 Keep the weights moderate if you want to avoid missing relevant jobs. The role score should remain the strongest signal; preference scores are mainly for ordering review priority.
 
 ## Deduplication
@@ -195,13 +279,30 @@ Jobs are merged by normalized company family, role title, and location family, n
 
 When duplicates are merged, the visible `Sources` column can contain multiple platforms. Extra URLs are kept in hidden workbook fields. `Source count` means unique platforms, not the number of raw URLs, so one opportunity found on LinkedIn, APEC, France Travail, and Adzuna is counted as four sources but remains one row.
 
+## Platforms And Credentials
+
+Public default sources that do not require credentials:
+
+- APEC
+- HelloWork
+- Welcome to the Jungle public sitemap fallback
+- LinkedIn public guest endpoints
+
+Optional sources that require user-provided credentials:
+
+- France Travail API: `FRANCE_TRAVAIL_CLIENT_ID`, `FRANCE_TRAVAIL_CLIENT_SECRET`, optional `FRANCE_TRAVAIL_SCOPE`
+- Adzuna API: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`
+- WelcomeKit official API: `WK_API_KEY`
+
+Credentialed sources are disabled by default in the public config. Enable them from the GUI source checkboxes, with command-line switches such as `-EnableFranceTravail`, `-EnableAdzuna`, or `-EnableWelcomeKit`, or through a local config override.
+
 ## Welcome To The Jungle
 
 The script supports the official WelcomeKit API when a token is available:
 
 ```powershell
 $env:WK_API_KEY = "your_api_key"
-powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1
+powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -EnableWelcomeKit
 ```
 
 To persist the token for future manual runs:
@@ -212,13 +313,34 @@ To persist the token for future manual runs:
 
 Without `WK_API_KEY`, it uses a public WTTJ sitemap fallback.
 
+## Credential Storage
+
+The JSON config files store credential variable names only. The real credential values are stored outside the project in Windows User environment variables, so they are not committed to Git and are not written into the tracker workbook.
+
+You can set or update credentials from the GUI with `Set credential`, or with PowerShell:
+
+```powershell
+[Environment]::SetEnvironmentVariable("WK_API_KEY", "your_api_key", "User")
+[Environment]::SetEnvironmentVariable("FRANCE_TRAVAIL_CLIENT_ID", "your_client_id", "User")
+[Environment]::SetEnvironmentVariable("FRANCE_TRAVAIL_CLIENT_SECRET", "your_client_secret", "User")
+[Environment]::SetEnvironmentVariable("ADZUNA_APP_ID", "your_app_id", "User")
+[Environment]::SetEnvironmentVariable("ADZUNA_APP_KEY", "your_app_key", "User")
+```
+
+The variable names themselves are configured in:
+
+```text
+config\sources.json
+```
+
 ## France Travail
 
-France Travail is supported through the official API Offres d'emploi. It is skipped unless credentials are configured:
+France Travail is supported through the official API Offres d'emploi. It is disabled by default in the public release and skipped unless credentials are configured and the source is enabled:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("FRANCE_TRAVAIL_CLIENT_ID", "your_client_id", "User")
 [Environment]::SetEnvironmentVariable("FRANCE_TRAVAIL_CLIENT_SECRET", "your_client_secret", "User")
+powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -EnableFranceTravail
 ```
 
 Optional scope override:
@@ -231,11 +353,12 @@ The crawler searches the same web/digital analytics query pool, asks the API for
 
 ## Adzuna
 
-Adzuna is supported through the official jobs API. It is skipped unless credentials are configured:
+Adzuna is supported through the official jobs API. It is disabled by default in the public release and skipped unless credentials are configured and the source is enabled:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("ADZUNA_APP_ID", "your_app_id", "User")
 [Environment]::SetEnvironmentVariable("ADZUNA_APP_KEY", "your_app_key", "User")
+powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -EnableAdzuna
 ```
 
 Adzuna has tighter public API limits, so the crawler uses a small default page count and pauses between calls. It uses `max_days_old` to keep the same 7-day crawl window.
@@ -273,9 +396,13 @@ The crawler is manual-only. Nothing in this project is scheduled to run at Windo
 - Close `jobs_tracker.xlsx` before crawling, formatting, or updating status.
 - Keep `output\jobs_tracker.xlsx` as the only working tracker file.
 - Keep recent files in `output\backups` only for rollback; old backups are pruned automatically.
-- Run `Test-JobTrackerHealth.ps1` after larger changes or if the workbook looks odd.
-- Run `Test-ScoringRules.ps1` after changing matching, feedback, or preference rules. It does not require Excel.
-- Run `Test-ParserFixtures.ps1` after changing APEC, HelloWork, LinkedIn, or dedupe parsing. It does not require Excel or network access.
+- Runtime modules live in `app\`.
+- Source-specific crawlers live in `app\sources\`.
+- Development tools and parser fixtures live in `dev-tools\`.
+- Run `dev-tools\Test-JobTrackerHealth.ps1` after larger changes or if the workbook looks odd.
+- Run `dev-tools\Test-ScoringRules.ps1` after changing matching, feedback, or preference rules. It does not require Excel.
+- Run `dev-tools\Test-ParserFixtures.ps1` after changing APEC, HelloWork, LinkedIn, or dedupe parsing. It does not require Excel or network access.
+- Run `dev-tools\Test-ReleaseSafety.ps1` before publishing a public release.
 - Shared workbook schema and styling helpers live in `JobTracker.Common.ps1`.
 
 ## Adjust Defaults
@@ -295,6 +422,16 @@ Useful speed knobs:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -CrawlMode Fast -MaxLinkedInDetails 50
 ```
+
+Useful maintenance modes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -DiagnosticMode
+powershell -ExecutionPolicy Bypass -File .\Find-AnalyticsJobs.ps1 -ValidateConfig
+```
+
+`-DryRun` crawls and merges in memory without writing the workbook. `-DiagnosticMode` writes `output\diagnostics\crawl_diagnostics_*.csv` with matched pre-filter rows and contract-exclusion status.
 
 To bypass the local detail-page cache for a fresh diagnostic run:
 

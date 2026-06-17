@@ -4,7 +4,8 @@ param()
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "Find-AnalyticsJobs.ps1") -SelfTest
+$projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $projectRoot "Find-AnalyticsJobs.ps1") -SelfTest
 
 function Assert-Fixture {
     param(

@@ -9,10 +9,11 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "JobTracker.Common.ps1")
+$projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $projectRoot "JobTracker.Common.ps1")
 
 if ([string]::IsNullOrWhiteSpace($BaselinePath)) {
-    $BaselinePath = Join-Path $PSScriptRoot "output\jobs_tracker.xlsx"
+    $BaselinePath = Join-Path $projectRoot "output\jobs_tracker.xlsx"
 }
 
 function Test-IsApplicationStatus {

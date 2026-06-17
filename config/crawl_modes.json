@@ -1,0 +1,40 @@
+{
+  "modes": {
+    "Fast": {
+      "max_linkedin_search_pages": 2,
+      "max_linkedin_details": 35,
+      "max_france_travail_pages": 1,
+      "max_adzuna_pages": 1,
+      "max_apec_pages": 1,
+      "max_hellowork_pages": 1,
+      "max_hellowork_cards_per_query": 12,
+      "max_hellowork_details": 25,
+      "max_welcome_kit_pages": 6,
+      "max_wttj_candidate_pages": 50
+    },
+    "Default": {
+      "max_linkedin_search_pages": 3,
+      "max_linkedin_details": 80,
+      "max_france_travail_pages": 2,
+      "max_adzuna_pages": 1,
+      "max_apec_pages": 2,
+      "max_hellowork_pages": 1,
+      "max_hellowork_cards_per_query": 20,
+      "max_hellowork_details": 50,
+      "max_welcome_kit_pages": 10,
+      "max_wttj_candidate_pages": 120
+    },
+    "Deep": {
+      "max_linkedin_search_pages": 4,
+      "max_linkedin_details": 160,
+      "max_france_travail_pages": 3,
+      "max_adzuna_pages": 2,
+      "max_apec_pages": 3,
+      "max_hellowork_pages": 2,
+      "max_hellowork_cards_per_query": 30,
+      "max_hellowork_details": 120,
+      "max_welcome_kit_pages": 15,
+      "max_wttj_candidate_pages": 220
+    }
+  }
+}

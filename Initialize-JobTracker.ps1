@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$TrackerPath = "",
-    [string]$ConfigDirectory = "config"
+    [string]$ConfigDirectory = "config",
+    [switch]$Force
 )
 
 Set-StrictMode -Version 2.0
@@ -29,8 +30,9 @@ if (-not $validation.IsValid) {
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
     $TrackerPath = Resolve-JobCrawlerPath -BasePath $PSScriptRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
 }
-if (-not (Test-Path -LiteralPath $TrackerPath)) {
-    throw "Tracker workbook not found: $TrackerPath"
+
+if ((Test-Path -LiteralPath $TrackerPath) -and -not $Force) {
+    throw "Tracker already exists: $TrackerPath. Use -Force only if you intentionally want to replace it."
 }
 
 $RunStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
@@ -50,22 +52,21 @@ $JobCrawlerPreferences = Get-JobCrawlerPreferences
 $MasterColumns = Get-JobTrackerMasterColumns
 $ColumnLabels = Get-JobTrackerColumnLabels
 
-$rows = @(Import-TrackerRows -Path $TrackerPath)
 $summary = @{
-    TotalMatched = @($rows).Count
+    TotalMatched = 0
     ExcludedContractCount = 0
-    CurrentCount = @($rows | Where-Object { (Get-RowValue -Row $_ -Name "seen_in_current_crawl") -eq "yes" }).Count
-    TrackerCount = @($rows).Count
+    CurrentCount = 0
+    TrackerCount = 0
     DuplicateCount = 0
     RemovedCount = 0
-    PreservedAppliedCount = @($rows | Where-Object { Test-IsAppliedStatus (Get-RowValue -Row $_ -Name "status") }).Count
-    SourceDiagnostics = "Reformatted existing workbook; no crawl run."
+    PreservedAppliedCount = 0
+    SourceDiagnostics = "Initialized empty workbook; no crawl run."
     BackupPath = ""
-    CrawlCaps = "Reformat only"
+    CrawlCaps = "Initialize only"
     DryRun = "no"
     DiagnosticMode = "no"
     DiagnosticPath = ""
 }
 
-Export-TrackerWorkbook -Rows $rows -Path $TrackerPath -Summary $summary
-Write-Host ("Formatted workbook: {0}" -f (Resolve-Path $TrackerPath).Path)
+Export-TrackerWorkbook -Rows @() -Path $TrackerPath -Summary $summary
+Write-Host ("Initialized tracker: {0}" -f (Resolve-Path $TrackerPath).Path)

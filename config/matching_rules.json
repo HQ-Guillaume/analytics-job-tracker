@@ -1,0 +1,91 @@
+{
+  "thresholds": {
+    "minimum_match_score": 35,
+    "medium_score": 50,
+    "high_score": 80,
+    "no_core_title_cap": 49
+  },
+  "contract_rules": {
+    "excluded_pattern": "\\bcdd\\b|apprenticeship|apprenti|apprentissage|alternance|internship|intern|stagiaire|stage|freelance|independent|contractor",
+    "early_explicit_excluded_pattern": "\\bcdd\\b|apprenticeship|apprenti|apprentissage|alternance|internship|stagiaire|\\bstage\\b|freelance|independent|contractor",
+    "preferred_pattern": "\\bcdi\\b|permanent|full\\s*time|temps\\s+plein"
+  },
+  "contexts": {
+    "core_title": "\\bweb\\s*analyst\\b|\\bdigital\\s*analyst\\b|analyste\\s+(digital|web)|digital\\s+analytics?\\s+consultant|analytics?\\s+consultant|web\\s+analytics?\\s+consultant|web\\s+analytics|digital\\s+analytics|tracking|webtracking|taggage|tagging|\\bdata\\s*analyst\\b|analyste\\s+de\\s+donnees|performance\\s+digital|performance\\s+digitale|digital\\s+performance|\\bcro\\b|conversion\\s+rate|conversion\\s+optimization|optimisation\\s+conversion",
+    "go_to_market": "go\\s*[- ]?\\s*to\\s*[- ]?\\s*market|\\banalytics\\s+engineer\\s+gtm\\b|\\bgtm\\s+(strategy|strategies|motion|motions|operations|ops|sales|revenue|revops|demand|pipeline|finance|engineer|generation|outbound|inbound)\\b|\\b(growth|demand|pipeline|revops|revenue|sales|finance|outbound|inbound)\\s+gtm\\b|\\b(head|director|manager|lead|chief)\\s+of\\s+gtm\\b|\\b(sdr|bdr)\\b.*\\bgtm\\b",
+    "web_analytics_tools": "google\\s+tag\\s+manager|google\\s+analytics|\\bga4\\b|piano\\s+analytics|contentsquare|content\\s+square|tag\\s+commander|commanders?\\s+act|\\btealium\\b|tealium\\s+iq|matomo|adobe\\s+analytics|omniture|data\\s*layer|datalayer|tagging\\s+plan|tracking\\s+plan|plan\\s+de\\s+(taggage|marquage)|consent\\s+mode|cookie\\s+consent|server\\s*[- ]?\\s*side\\s+(tracking|tagging|analytics)|tracking\\s+server\\s*[- ]?\\s*side|tagging\\s+server\\s*[- ]?\\s*side|server\\s+container|\\bsgtm\\b",
+    "digital_analytics_title": "\\bweb\\s*analyst\\b|\\bdigital\\s*analyst\\b|analyste\\s+(digital|web)|web\\s+analytics|digital\\s+analytics|tracking|webtracking|taggage|tagging|analytics?\\s+consultant|performance\\s+digital|performance\\s+digitale|digital\\s+performance|\\bcro\\b|conversion",
+    "marketing_only": "\\bseo\\b|\\bsea\\b|paid\\s+social|paid\\s+search|paid\\s+media|performance\\s+marketing|growth\\s+marketing|acquisition\\s+marketing|digital\\s+marketing|social\\s+media|content\\s+marketing|campaign\\s+manager|media\\s+buyer",
+    "data_warehouse": "\\bdbt\\b|snowflake|airflow|\\betl\\b|\\belt\\b|data\\s+warehouse|datawarehouse|data\\s+platform|databricks|pyspark|spark|data\\s+pipeline|\\bpython\\b"
+  },
+  "positive_signals": [
+    { "scope": "title", "pattern": "\\bweb\\s*analyst\\b", "keyword": "Role: Web Analyst", "score": 60 },
+    { "scope": "title", "pattern": "\\bdigital\\s*analyst\\b|analyste\\s+digital|analyste\\s+web", "keyword": "Role: Digital/Web Analyst", "score": 55 },
+    { "scope": "title", "pattern": "digital\\s+analytics?\\s+consultant|analytics?\\s+consultant|web\\s+analytics?\\s+consultant", "keyword": "Role: Analytics Consultant", "score": 55 },
+    { "scope": "title", "pattern": "tracking|webtracking|taggage|tagging", "keyword": "Role: Tracking/Tagging", "score": 50 },
+    { "scope": "title", "pattern": "web\\s+analytics|digital\\s+analytics", "keyword": "Role: Web/Digital Analytics", "score": 45 },
+    { "scope": "title", "pattern": "\\bdata\\s*analyst\\b|analyste\\s+de\\s+donnees", "keyword": "Role: Data Analyst", "score": 25 },
+    { "scope": "title", "pattern": "performance\\s+digital|performance\\s+digitale|digital\\s+performance", "keyword": "Role: Digital Performance", "score": 30 },
+    { "scope": "title", "pattern": "\\bcro\\b|conversion\\s+rate|conversion\\s+optimization|optimisation\\s+conversion", "keyword": "Mission: CRO", "score": 25 },
+    { "scope": "full", "pattern": "google\\s+tag\\s+manager", "keyword": "Tool: Google Tag Manager", "score": 35 },
+    { "scope": "full", "pattern": "google\\s+analytics|\\bga4\\b", "keyword": "Tool: Google Analytics/GA4", "score": 35 },
+    { "scope": "full", "pattern": "piano\\s+analytics", "keyword": "Tool: Piano Analytics", "score": 35 },
+    { "scope": "full", "pattern": "contentsquare|content\\s+square", "keyword": "Tool: ContentSquare", "score": 35 },
+    { "scope": "full", "pattern": "tag\\s+commander|commanders?\\s+act", "keyword": "Tool: Tag Commander/Commanders Act", "score": 35 },
+    { "scope": "full", "pattern": "\\btealium\\b|tealium\\s+iq", "keyword": "Tool: Tealium", "score": 35 },
+    { "scope": "full", "pattern": "data\\s*layer|datalayer", "keyword": "Mission: dataLayer", "score": 25 },
+    { "scope": "full", "pattern": "plan\\s+de\\s+(taggage|marquage)|tagging\\s+plan|tracking\\s+plan", "keyword": "Mission: tagging plan", "score": 30 },
+    { "scope": "full", "pattern": "tracking|taggage|tagging|tag\\s+management", "keyword": "Mission: tracking/tagging", "score": 20 },
+    { "scope": "full", "pattern": "server\\s*[- ]?\\s*side\\s+(tracking|tagging|analytics)|tracking\\s+server\\s*[- ]?\\s*side|tagging\\s+server\\s*[- ]?\\s*side|server\\s+container|\\bsgtm\\b", "keyword": "Mission: server-side tracking", "score": 20 },
+    { "scope": "full", "pattern": "consent\\s+mode|cmp|cookie\\s+consent", "keyword": "Mission: consent tracking", "score": 20 },
+    { "scope": "full", "pattern": "\\brgpd\\b|\\bgdpr\\b|protection\\s+des\\s+donnees|protection\\s+des\\s+donn[eé]es|privacy|conformit[eé]", "keyword": "Mission: RGPD/GDPR", "score": 10 },
+    { "scope": "full", "pattern": "a/b\\s*test|ab\\s*test|experimentation", "keyword": "Mission: A/B testing", "score": 15 },
+    { "scope": "full", "pattern": "matomo|adobe\\s+analytics|omniture", "keyword": "Tool: other analytics tools", "score": 20 },
+    { "scope": "full", "pattern": "looker\\s+studio|data\\s+studio|dashboard|reporting|tableau\\s+de\\s+bord", "keyword": "Mission: reporting/dashboard", "score": 10 },
+    { "scope": "full", "pattern": "\\bkpi\\b|conversion|funnel|parcours\\s+utilisateur|user\\s+journey", "keyword": "Mission: analytics responsibilities", "score": 10 }
+  ],
+  "special_positive_signals": {
+    "gtm_when_not_go_to_market": {
+      "pattern": "\\bgtm\\b",
+      "keyword": "Tool: GTM",
+      "score": 35
+    }
+  },
+  "negative_signals": {
+    "marketing_only": { "keyword": "Risk: SEO/SEA/marketing-only role", "score": -25 },
+    "marketing_related": { "pattern": "\\bseo\\b|\\bsea\\b|paid\\s+social|performance\\s+marketing|growth\\s+marketing|digital\\s+marketing", "keyword": "Risk: possible marketing role", "score": -8 },
+    "time_tracking_payroll": { "pattern": "time\\s+tracking|absence|payroll", "except_title_pattern": "web|analytics|tagging|taggage|webtracking|\\bcro\\b", "keyword": "Risk: time-tracking/payroll role", "score": -60 },
+    "seo_only_title": { "pattern": "\\bseo\\s+specialist\\b", "except_title_pattern": "analytics|web\\s+analytics|tracking|tagging|taggage", "keyword": "Risk: SEO-only role", "score": -60 },
+    "hr_recruiting": { "pattern": "people\\s+business\\s+partner|\\bhr\\b|human\\s+resources|ressources\\s+humaines|talent\\s+acquisition|recruiter|recruteur|recrutement|charg[eé]\\s+de\\s+recrutement", "keyword": "Risk: HR/recruiting role", "score": -60 },
+    "go_to_market": { "keyword": "Risk: go-to-market role", "score": -35 },
+    "broad_analyst": { "pattern": "business\\s+analyst|risk|risque|finance|banking|bancaire", "keyword": "Risk: broad analyst role", "score": -10 },
+    "data_analyst_engineering": { "keyword": "Risk: data analyst/engineering role", "score": -25 },
+    "warehouse_python": { "keyword": "Risk: warehouse/python role", "score": -12 },
+    "engineering": { "pattern": "software\\s+engineer|data\\s+engineer|sales\\s+engineer|backend|frontend|devops", "keyword": "Risk: engineering role", "score": -15 }
+  },
+  "feedback_positive_signals": [
+    { "key": "google_tag_manager", "label": "feedback positive: Google Tag Manager", "pattern": "google\\s+tag\\s+manager|\\bgtm\\b" },
+    { "key": "google_analytics", "label": "feedback positive: Google Analytics/GA4", "pattern": "google\\s+analytics|\\bga4\\b" },
+    { "key": "piano", "label": "feedback positive: Piano", "pattern": "piano" },
+    { "key": "contentsquare", "label": "feedback positive: ContentSquare", "pattern": "contentsquare|content\\s+square" },
+    { "key": "tag_commander", "label": "feedback positive: Tag Commander/Commanders Act", "pattern": "tag\\s+commander|commanders?\\s+act" },
+    { "key": "tealium", "label": "feedback positive: Tealium", "pattern": "\\btealium\\b|tealium\\s+iq" },
+    { "key": "server_side", "label": "feedback positive: server-side tracking", "pattern": "server\\s*[- ]?\\s*side|server\\s+container|\\bsgtm\\b" },
+    { "key": "rgpd", "label": "feedback positive: RGPD/GDPR", "pattern": "\\brgpd\\b|\\bgdpr\\b|protection\\s+des\\s+donn[eé]es|privacy|conformit[eé]" },
+    { "key": "datalayer", "label": "feedback positive: dataLayer", "pattern": "data\\s*layer|datalayer" },
+    { "key": "tagging_plan", "label": "feedback positive: tagging plan", "pattern": "tagging\\s+plan|tracking\\s+plan|plan\\s+de\\s+(taggage|marquage)" },
+    { "key": "consent", "label": "feedback positive: consent tracking", "pattern": "consent\\s+mode|cookie\\s+consent|\\bcmp\\b" },
+    { "key": "cro", "label": "feedback positive: CRO", "pattern": "\\bcro\\b|conversion\\s+rate|conversion\\s+optimization|optimisation\\s+conversion" }
+  ],
+  "feedback_negative_rules": [
+    { "key": "too_seo_sea_marketing", "pattern": "\\bseo\\b|\\bsea\\b|paid\\s+social|paid\\s+search|paid\\s+media|performance\\s+marketing|growth\\s+marketing|acquisition|campaign|media\\s+buyer", "label": "feedback ignored: SEO/SEA/marketing", "max": 14 },
+    { "key": "too_data_analyst", "pattern": "\\bdata\\s*analyst\\b|analyste\\s+de\\s+donnees|\\bpython\\b|\\bsql\\b|notebook|data\\s+warehouse|business\\s+analyst", "label": "feedback ignored: data analyst", "max": 12 },
+    { "key": "too_data_engineering", "pattern": "data\\s+engineer|analytics?\\s+engineer|\\bdbt\\b|snowflake|airflow|\\betl\\b|\\belt\\b|data\\s+warehouse|datawarehouse|data\\s+platform|databricks|pyspark|spark|pipeline|backend|devops", "label": "feedback ignored: data engineering", "max": 16 },
+    { "key": "too_bi_reporting", "pattern": "\\bbi\\b|business\\s+intelligence|power\\s*bi|tableau|dashboard|reporting|looker|data\\s+studio|tableau\\s+de\\s+bord", "label": "feedback ignored: BI/reporting", "max": 10 },
+    { "key": "too_crm_emailing", "pattern": "\\bcrm\\b|emailing|email\\s+marketing|marketing\\s+automation|salesforce|hubspot|braze|batch|campaign", "label": "feedback ignored: CRM/emailing", "max": 12 },
+    { "key": "too_content_social", "pattern": "content\\s+marketing|social\\s+media|community\\s+manager|editorial|copywriting|seo\\s+content", "label": "feedback ignored: content/social", "max": 12 },
+    { "key": "too_product_analytics", "pattern": "product\\s+analyst|product\\s+analytics|amplitude|mixpanel|heap", "label": "feedback ignored: product analytics", "max": 8 },
+    { "key": "too_managerial", "pattern": "\\bhead\\b|director|directeur|directrice|lead|manager|responsable|principal", "label": "feedback ignored: managerial", "max": 8 },
+    { "key": "agency_consulting_esn", "pattern": "consultant|consulting|cabinet|agence|agency|\\besn\\b|ssii", "label": "feedback ignored: agency/consulting/ESN", "max": 8 }
+  ]
+}

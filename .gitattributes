@@ -4,3 +4,7 @@
 *.md text eol=lf
 *.yml text eol=lf
 
+/output/** export-ignore
+/dist/** export-ignore
+/config/local*.json export-ignore
+/config/local/** export-ignore

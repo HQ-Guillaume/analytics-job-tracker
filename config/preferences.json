@@ -25,6 +25,17 @@
     "excluded": -100,
     "unknown": 0
   },
+  "employer_type_patterns": {
+    "generic_job_board": "confidential|jobgether|linkedin|indeed|talent\\s*com|jobs?\\s+via",
+    "known_agency": "publicis|dentsu|havas|labelium|pixalione|eskimoz|jellyfish|performics|iprospect|allmatik|leonar|ekinox",
+    "known_consulting": "fifty\\s*[- ]?\\s*five|\\b55\\b|converteo|artefact|optimal\\s+ways|innoha|ekimetrics|wavestone|mc2i|deloitte|pwc|ey|kpmg|accenture",
+    "known_esn": "\\bcgi\\b|infotel|oventi|keyrus|micropole|business\\s+&?\\s+decision|devoteam|onepoint|talan|sopra\\s+steria|capgemini|\\bsqli\\b|\\bsqly\\b|niji|consort|nexton|scalian|amaris|\\bsii\\b|atos|worldline|inetum|alten|ausy|neosoft",
+    "agency_context": "\\bagence\\b|agency|paid\\s+media\\s+agency|marketing\\s+agency|media\\s+agency",
+    "consulting_context": "cabinet\\s+(de\\s+)?conseil|societe\\s+de\\s+conseil|\\bconseil\\b|consulting\\s+(firm|agency|company|cabinet)|missions?\\s+chez\\s+les?\\s+clients|chez\\s+nos\\s+clients",
+    "esn_context": "\\besn\\b|\\bssii\\b|services\\s+numeriques|entreprise\\s+de\\s+services\\s+du\\s+numerique",
+    "consultant_title_context": "\\bconsultant(e)?\\b",
+    "consultant_body_context": "client|mission|conseil|consulting|cabinet"
+  },
   "target_location_patterns": [
     "paris",
     "ile\\s*de\\s*france",
