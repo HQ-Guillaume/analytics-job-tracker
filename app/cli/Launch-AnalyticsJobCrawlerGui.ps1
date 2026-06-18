@@ -234,6 +234,40 @@ function Add-LogLine {
     $script:LogTextBox.ScrollToCaret()
 }
 
+function Read-LauncherTextFileShared {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return ""
+    }
+
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        $stream = $null
+        $reader = $null
+        try {
+            $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8, $true)
+            return $reader.ReadToEnd()
+        }
+        catch {
+            if ($attempt -ge 6) {
+                throw
+            }
+            Start-Sleep -Milliseconds (60 * $attempt)
+        }
+        finally {
+            if ($null -ne $reader) {
+                $reader.Dispose()
+            }
+            elseif ($null -ne $stream) {
+                $stream.Dispose()
+            }
+        }
+    }
+
+    return ""
+}
+
 function Set-LauncherRunningState {
     param([bool]$IsRunning)
 
@@ -496,7 +530,8 @@ function Read-LauncherRunLog {
     }
 
     try {
-        $lines = @(Get-Content -LiteralPath $script:LauncherRunLogPath -Encoding UTF8)
+        $content = Read-LauncherTextFileShared -Path $script:LauncherRunLogPath
+        $lines = @($content -split "\r?\n")
         if ($lines.Count -le $script:RunLogLineCount) {
             return
         }
@@ -540,8 +575,36 @@ function New-LauncherRunScript {
 `$crawlerPath = $(ConvertTo-PowerShellLiteral $CrawlerPath)
 `$logPath = $(ConvertTo-PowerShellLiteral $script:LauncherRunLogPath)
 
+function Add-LauncherLogLine {
+    param([AllowNull()][string]`$Line)
+
+    `$encoding = New-Object System.Text.UTF8Encoding(`$false)
+    `$text = [string]`$Line + [Environment]::NewLine
+    `$bytes = `$encoding.GetBytes(`$text)
+    for (`$attempt = 1; `$attempt -le 8; `$attempt++) {
+        `$stream = `$null
+        try {
+            `$stream = [System.IO.File]::Open(`$logPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            `$stream.Write(`$bytes, 0, `$bytes.Length)
+            return
+        }
+        catch {
+            if (`$attempt -ge 8) {
+                [Console]::Error.WriteLine("Could not write launcher log: {0}" -f `$_.Exception.Message)
+                throw
+            }
+            Start-Sleep -Milliseconds (80 * `$attempt)
+        }
+        finally {
+            if (`$null -ne `$stream) {
+                `$stream.Dispose()
+            }
+        }
+    }
+}
+
 try {
-    Add-Content -LiteralPath `$logPath -Encoding UTF8 -Value ("[{0}] Launcher started crawler." -f (Get-Date -Format "HH:mm:ss"))
+    Add-LauncherLogLine ("[{0}] Launcher started crawler." -f (Get-Date -Format "HH:mm:ss"))
     & `$crawlerPath$argumentText *>&1 | ForEach-Object {
         if (`$null -eq `$_) {
             `$text = ""
@@ -551,15 +614,20 @@ try {
         }
         `$text = `$text.TrimEnd()
         if (-not [string]::IsNullOrWhiteSpace(`$text)) {
-            Add-Content -LiteralPath `$logPath -Encoding UTF8 -Value `$text
+            Add-LauncherLogLine `$text
         }
     }
-    Add-Content -LiteralPath `$logPath -Encoding UTF8 -Value ("[{0}] Crawler process completed." -f (Get-Date -Format "HH:mm:ss"))
+    Add-LauncherLogLine ("[{0}] Crawler process completed." -f (Get-Date -Format "HH:mm:ss"))
     exit 0
 }
 catch {
-    Add-Content -LiteralPath `$logPath -Encoding UTF8 -Value ("[{0}] ERROR: {1}" -f (Get-Date -Format "HH:mm:ss"), `$_.Exception.Message)
-    Add-Content -LiteralPath `$logPath -Encoding UTF8 -Value (`$_ | Out-String)
+    try {
+        Add-LauncherLogLine ("[{0}] ERROR: {1}" -f (Get-Date -Format "HH:mm:ss"), `$_.Exception.Message)
+        Add-LauncherLogLine (`$_ | Out-String)
+    }
+    catch {
+        [Console]::Error.WriteLine("Crawler launcher failed and could not write the log: {0}" -f `$_.Exception.Message)
+    }
     exit 1
 }
 "@
