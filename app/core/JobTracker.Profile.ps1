@@ -358,7 +358,7 @@ function New-JobCrawlerProfileFromBuilder {
                 "ignore_reason=company_not_interested; detail=",
                 "ignore_reason=industry_not_interested; detail=",
                 "ignore_reason=agency_consulting_esn; detail=",
-                "ignore_reason=duplicate; detail=",
+                "ignore_reason=duplicate; company_alias=; detail=",
                 "ignore_reason=low_quality_posting; detail=",
                 "ignore_reason=other; detail="
             )
@@ -416,6 +416,61 @@ function Save-JobCrawlerLocalProfile {
 
     $path = Join-Path (Join-Path (Join-Path $configRoot.Path "local") "profiles") ("{0}.json" -f $profileId)
     Write-JobCrawlerJsonConfig -Path $path -Value $Profile
+    return $path
+}
+
+function Clear-JobCrawlerDefaultProfile {
+    param([string]$ConfigDirectory)
+
+    $configRoot = Resolve-Path -LiteralPath $ConfigDirectory -ErrorAction SilentlyContinue
+    if ($null -eq $configRoot) {
+        throw "Config directory not found: $ConfigDirectory"
+    }
+
+    $path = Join-Path $configRoot.Path "local.runtime.json"
+    $current = Read-JobCrawlerJsonConfig -Path $path -DefaultValue ([PSCustomObject]@{})
+    $hash = ConvertTo-ConfigHashtable $current
+    if ($null -eq $hash -or -not ($hash -is [System.Collections.IDictionary])) {
+        $hash = [ordered]@{}
+    }
+    if (-not $hash.Contains("defaults") -or $null -eq $hash["defaults"] -or -not ($hash["defaults"] -is [System.Collections.IDictionary])) {
+        $hash["defaults"] = [ordered]@{}
+    }
+    $hash["defaults"]["profile_id"] = ""
+    Write-JobCrawlerJsonConfig -Path $path -Value $hash
+    return $path
+}
+
+function Remove-JobCrawlerLocalProfile {
+    param(
+        [string]$ConfigDirectory,
+        [string]$ProfileId
+    )
+
+    $configRoot = Resolve-Path -LiteralPath $ConfigDirectory -ErrorAction SilentlyContinue
+    if ($null -eq $configRoot) {
+        throw "Config directory not found: $ConfigDirectory"
+    }
+
+    $selectedId = ConvertTo-JobCrawlerProfileId $ProfileId
+    if ([string]::IsNullOrWhiteSpace($selectedId)) {
+        throw "Profile id is required."
+    }
+
+    $path = Join-Path (Join-Path (Join-Path $configRoot.Path "local") "profiles") ("{0}.json" -f $selectedId)
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "Only local profiles can be deleted from the GUI. Local profile not found: $selectedId"
+    }
+
+    Remove-Item -LiteralPath $path -Force
+
+    $runtimePath = Join-Path $configRoot.Path "local.runtime.json"
+    $runtime = Read-JobCrawlerJsonConfig -Path $runtimePath -DefaultValue ([PSCustomObject]@{})
+    $currentDefault = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigPathValue -Object $runtime -Path "defaults.profile_id" -DefaultValue ""))
+    if ($currentDefault -eq $selectedId) {
+        [void](Clear-JobCrawlerDefaultProfile -ConfigDirectory $configRoot.Path)
+    }
+
     return $path
 }
 

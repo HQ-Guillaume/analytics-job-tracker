@@ -870,9 +870,9 @@ function ConvertTo-LocationText {
         return Join-CleanTextParts $locations
     }
 
-    $city = Get-ObjectPropertyValue -Object $Value -Names @("city", "locality", "addressLocality", "town")
+    $city = Get-ObjectPropertyValue -Object $Value -Names @("city", "local_city", "locality", "addressLocality", "town")
     $region = Get-ObjectPropertyValue -Object $Value -Names @("region", "state", "addressRegion", "department")
-    $country = Get-ObjectPropertyValue -Object $Value -Names @("country", "countryCode", "addressCountry")
+    $country = Get-ObjectPropertyValue -Object $Value -Names @("country", "country_code", "countryCode", "addressCountry")
     $directLocation = Join-CleanTextParts @($city, $region, $country)
     if (-not [string]::IsNullOrWhiteSpace($directLocation)) {
         return $directLocation

@@ -92,7 +92,7 @@ $row = New-OrderedJobRecord @{
 $tempPath = Join-Path ([IO.Path]::GetTempPath()) ("custom-job-tracker-openxml-test-{0}.xlsx" -f ([Guid]::NewGuid().ToString("N")))
 try {
     Export-TrackerWorkbook -Rows @($row) -Path $tempPath -Summary @{
-        Profile               = "Digital Analytics (digital_analytics)"
+        Profile               = "Test Profile (test_profile)"
         TotalMatched          = 1
         ExcludedContractCount = 0
         CurrentCount          = 1

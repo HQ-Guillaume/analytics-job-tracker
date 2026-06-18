@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$TrackerPath = "",
+    [string]$ConfigDirectory = "config",
+    [string]$Profile = "",
     [switch]$WarnOnly
 )
 
@@ -9,9 +11,12 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $projectRoot "app\core\JobTracker.Common.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Config.ps1")
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Join-Path $projectRoot "output\jobs_tracker.xlsx"
+    $configPath = Resolve-JobCrawlerPath -BasePath $projectRoot -Path $ConfigDirectory
+    $jobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath -ProfileId $Profile
+    $TrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $projectRoot -Config $jobCrawlerConfig
 }
 if (-not (Test-Path -LiteralPath $TrackerPath)) {
     throw "Tracker workbook not found: $TrackerPath"

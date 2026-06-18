@@ -33,6 +33,21 @@ function Split-NormalizedTokens {
     return @($clean -split "\s+" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function Get-DedupePrimaryCompanyName {
+    param([AllowNull()][string]$CompanyName)
+
+    if ([string]::IsNullOrWhiteSpace($CompanyName)) {
+        return ""
+    }
+
+    $parts = @(([string]$CompanyName) -split "\s+\|\s+" | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($parts.Count -gt 0) {
+        return [string]$parts[0]
+    }
+
+    return ([string]$CompanyName).Trim()
+}
+
 function Test-IsGenericJobBoardName {
     param([AllowNull()][string]$Name)
 
@@ -76,7 +91,7 @@ function Get-DedupeCompanyStrongTokens {
         return @()
     }
 
-    $tokens = @(Split-NormalizedTokens $CompanyName)
+    $tokens = @(Split-NormalizedTokens (Get-DedupePrimaryCompanyName $CompanyName))
     if ($tokens.Count -eq 0) {
         return @()
     }
@@ -84,6 +99,87 @@ function Get-DedupeCompanyStrongTokens {
     $noise = @(Get-DedupeCompanyNoiseTokens)
     $weakCompanyTokens = @(Get-DedupeWeakCompanyTokens)
     return @($tokens | Where-Object { $_.Length -gt 1 -and $noise -notcontains $_ -and $weakCompanyTokens -notcontains $_ })
+}
+
+function Test-DedupeCompanyAliasTextMatch {
+    param(
+        [string]$CompanyText,
+        [string]$CandidateText
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CompanyText) -or [string]::IsNullOrWhiteSpace($CandidateText)) {
+        return $false
+    }
+    if ($CompanyText -eq $CandidateText) {
+        return $true
+    }
+
+    if ($CandidateText.Length -ge 5 -and $CompanyText -match ("^" + [regex]::Escape($CandidateText) + "(\s|$)")) {
+        return $true
+    }
+    if ($CompanyText.Length -ge 5 -and $CandidateText -match ("^" + [regex]::Escape($CompanyText) + "(\s|$)")) {
+        return $true
+    }
+
+    return $false
+}
+
+function Get-DedupeFeedbackCompanyAliasGroups {
+    param([object[]]$Rows)
+
+    $groupsByCanonical = [ordered]@{}
+    foreach ($row in @($Rows)) {
+        if ($null -eq $row) {
+            continue
+        }
+
+        $canonical = Get-CompanyAliasFromNotes (Get-RowValue -Row $row -Name "notes")
+        $alias = Get-RowValue -Row $row -Name "company_name"
+        if ([string]::IsNullOrWhiteSpace($canonical) -or [string]::IsNullOrWhiteSpace($alias)) {
+            continue
+        }
+
+        $canonicalText = ConvertTo-IdentityText -Text $canonical
+        if ([string]::IsNullOrWhiteSpace($canonicalText)) {
+            continue
+        }
+
+        if (-not $groupsByCanonical.Contains($canonicalText)) {
+            $groupsByCanonical[$canonicalText] = [ordered]@{
+                canonical = $canonical
+                aliases   = New-Object System.Collections.Generic.List[string]
+            }
+        }
+
+        $groupsByCanonical[$canonicalText]["aliases"].Add($alias) | Out-Null
+    }
+
+    return @($groupsByCanonical.Values | ForEach-Object {
+        [PSCustomObject]@{
+            canonical = [string]$_["canonical"]
+            aliases   = @($_["aliases"].ToArray() | Select-Object -Unique)
+        }
+    })
+}
+
+function Set-DedupeFeedbackCompanyAliases {
+    param([object[]]$Rows)
+
+    $script:JobCrawlerFeedbackCompanyAliases = @(Get-DedupeFeedbackCompanyAliasGroups -Rows $Rows)
+}
+
+function Get-DedupeConfiguredCompanyAliasGroups {
+    $configuredAliasGroups = @()
+    if (Get-Variable -Name JobCrawlerMatchingRules -Scope Script -ErrorAction SilentlyContinue) {
+        $configuredAliasGroups = @(Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "deduplication.company_aliases" -DefaultValue @())
+    }
+
+    $feedbackAliasGroups = @()
+    if (Get-Variable -Name JobCrawlerFeedbackCompanyAliases -Scope Script -ErrorAction SilentlyContinue) {
+        $feedbackAliasGroups = @($script:JobCrawlerFeedbackCompanyAliases)
+    }
+
+    return @($feedbackAliasGroups + $configuredAliasGroups)
 }
 
 function Get-DedupeCompanyKey {
@@ -101,34 +197,62 @@ function Get-DedupeCompanyKey {
     return ($strongTokens | Select-Object -First 2) -join " "
 }
 
-function Get-ConfiguredCompanyAliasCanonicalKey {
+function Get-ConfiguredCompanyAliasCanonicalName {
     param([AllowNull()][string]$CompanyName)
 
-    if ([string]::IsNullOrWhiteSpace($CompanyName) -or -not (Get-Variable -Name JobCrawlerMatchingRules -Scope Script -ErrorAction SilentlyContinue)) {
+    if ([string]::IsNullOrWhiteSpace($CompanyName)) {
         return ""
     }
 
-    $companyText = ConvertTo-IdentityText -Text $CompanyName
+    $companyText = ConvertTo-IdentityText -Text (Get-DedupePrimaryCompanyName $CompanyName)
     if ([string]::IsNullOrWhiteSpace($companyText)) {
         return ""
     }
 
-    foreach ($aliasGroup in @(Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "deduplication.company_aliases" -DefaultValue @())) {
+    foreach ($aliasGroup in @(Get-DedupeConfiguredCompanyAliasGroups)) {
         $canonical = [string](Get-ConfigProperty -Object $aliasGroup -Name "canonical" -DefaultValue "")
         $aliases = @(Get-ConfigStringArray (Get-ConfigProperty -Object $aliasGroup -Name "aliases" -DefaultValue @()))
         $candidateValues = @($canonical) + $aliases
         foreach ($candidate in @($candidateValues)) {
-            $candidateText = ConvertTo-IdentityText -Text $candidate
-            if (-not [string]::IsNullOrWhiteSpace($candidateText) -and $companyText -eq $candidateText) {
-                $canonicalKey = Get-DedupeCompanyKey $canonical
-                if (-not [string]::IsNullOrWhiteSpace($canonicalKey)) {
-                    return $canonicalKey
+            $candidateText = ConvertTo-IdentityText -Text (Get-DedupePrimaryCompanyName $candidate)
+            if (Test-DedupeCompanyAliasTextMatch -CompanyText $companyText -CandidateText $candidateText) {
+                if (-not [string]::IsNullOrWhiteSpace($canonical)) {
+                    return $canonical
                 }
             }
         }
     }
 
     return ""
+}
+
+function Get-ConfiguredCompanyAliasCanonicalKey {
+    param([AllowNull()][string]$CompanyName)
+
+    $canonicalName = Get-ConfiguredCompanyAliasCanonicalName $CompanyName
+    if ([string]::IsNullOrWhiteSpace($canonicalName)) {
+        return ""
+    }
+
+    return Get-DedupeCompanyKey $canonicalName
+}
+
+function Get-DedupeCompanyDisplayName {
+    param([AllowNull()][string]$CompanyName)
+
+    $displayName = Get-ConfiguredCompanyAliasCanonicalName $CompanyName
+    if ([string]::IsNullOrWhiteSpace($displayName)) {
+        $displayName = Get-DedupePrimaryCompanyName $CompanyName
+    }
+    if ([string]::IsNullOrWhiteSpace($displayName)) {
+        return ""
+    }
+
+    if (Get-Command Repair-DisplayText -ErrorAction SilentlyContinue) {
+        $displayName = Repair-DisplayText $displayName
+    }
+
+    return ([string]$displayName).Trim().ToLowerInvariant()
 }
 
 function Get-DedupeCompanyAliasKeys {
@@ -180,6 +304,12 @@ function ConvertTo-DedupeTitleToken {
 function Get-DedupeLocationKey {
     param([AllowNull()][string]$Location)
 
+    if (Get-Command Test-IsJunkLocationText -ErrorAction SilentlyContinue) {
+        if (Test-IsJunkLocationText $Location) {
+            return "unknown"
+        }
+    }
+
     $text = ConvertTo-MatchText $Location
     $text = $text -replace "[^a-z0-9]+", " "
     $text = ([regex]::Replace($text, "\s+", " ")).Trim()
@@ -225,6 +355,7 @@ function Get-DedupeTitleKey {
     $noise = @(
         "cdi", "cdd", "stage", "stagiaire", "internship", "intern", "alternance", "apprentissage",
         "contrat", "full", "time", "permanent", "temps", "plein", "h", "f", "hf", "fh", "fm", "mf", "x", "nb",
+        "senior", "junior", "jr", "sr", "confirme", "confirmee", "experimente", "experimentee",
         "paris", "lyon", "lille", "bordeaux", "nantes", "rennes", "montpellier", "marseille", "toulouse",
         "puteaux", "courbevoie", "nanterre", "levallois", "boulogne", "clichy", "issy", "france",
         "ile", "de", "a", "au", "aux", "en", "la", "le", "les", "du", "des", "et", "emea",
@@ -1177,6 +1308,8 @@ function Merge-JobsWithTracker {
         [string]$Path,
         [switch]$SkipBackup
     )
+
+    Set-DedupeFeedbackCompanyAliases -Rows (@($CurrentRows) + @($ExistingRows))
 
     $existingRecords = New-Object System.Collections.Generic.List[object]
     foreach ($existing in @($ExistingRows)) {

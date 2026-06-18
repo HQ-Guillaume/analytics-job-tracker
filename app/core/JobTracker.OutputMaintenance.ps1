@@ -104,8 +104,8 @@ function Invoke-JobCrawlerOutputCleanup {
         $OlderThanDays = [int](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "output.cleanup_default_age_days" -DefaultValue 14)
     }
 
-    $trackerRelativePath = [string](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx")
-    $outputDirectory = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path (Split-Path -Parent $trackerRelativePath)
+    $trackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $ProjectRoot -Config $script:JobCrawlerConfig
+    $outputDirectory = Split-Path -Parent $trackerPath
     $paths = New-Object System.Collections.Generic.List[object]
     if ($All -or $Cache) {
         $paths.Add([PSCustomObject]@{ Label = "cache"; Path = $CacheDirectory; Pattern = "*"; Recurse = $true }) | Out-Null

@@ -9,7 +9,6 @@
       "max_hellowork_pages": 1,
       "max_hellowork_cards_per_query": 12,
       "max_hellowork_details": 25,
-      "max_welcome_kit_pages": 6,
       "max_wttj_candidate_pages": 50
     },
     "Default": {
@@ -21,7 +20,6 @@
       "max_hellowork_pages": 1,
       "max_hellowork_cards_per_query": 20,
       "max_hellowork_details": 50,
-      "max_welcome_kit_pages": 10,
       "max_wttj_candidate_pages": 120
     },
     "Deep": {
@@ -33,7 +31,6 @@
       "max_hellowork_pages": 2,
       "max_hellowork_cards_per_query": 30,
       "max_hellowork_details": 120,
-      "max_welcome_kit_pages": 15,
       "max_wttj_candidate_pages": 220
     }
   }

@@ -29,7 +29,7 @@ $script:CacheDirectory = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([s
 $script:ProjectRoot = $ProjectRoot
 
 if (-not ($Cache -or $Logs -or $Diagnostics -or $Backups -or $All)) {
-    $outputDirectory = Split-Path -Parent (Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx")))
+    $outputDirectory = Split-Path -Parent (Get-JobCrawlerTrackerPath -ProjectRoot $ProjectRoot -Config $script:JobCrawlerConfig)
     $stats = @(
         (Get-JobCrawlerDirectoryStats -Label "cache" -Path $script:CacheDirectory),
         (Get-JobCrawlerDirectoryStats -Label "launcher logs" -Path (Join-Path $outputDirectory "launcher_logs")),

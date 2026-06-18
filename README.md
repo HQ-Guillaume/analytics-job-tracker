@@ -4,26 +4,26 @@ Rolling crawler and lightweight application tracker for customizable job-search 
 
 This repository is designed as a clean public release. Personal tracker data, credentials, local overrides, caches, backups, diagnostics, and generated workbooks stay outside Git.
 
-The public default profile is `Digital Analytics`, and users can create additional profiles from the GUI without editing JSON.
+Public releases do not include a job-search profile. Each user creates a private local profile from the GUI before the first crawl.
 
 ## Requirements
 
 - Windows for the GUI launchers
 - Windows PowerShell 5.1 or PowerShell 7+
-- Desktop Microsoft Excel is optional; when it is missing, the built-in OpenXML writer still creates `jobs_tracker.xlsx`
+- Desktop Microsoft Excel is optional; when it is missing, the built-in OpenXML writer still creates the profile tracker workbook
 - Internet access for crawling public job sources
 
 macOS/Linux compatibility is partial today: the current GUI uses WinForms and the `.cmd`/`.vbs` launchers are Windows-only, but the core PowerShell crawler and no-Excel XLSX writer are designed to be portable in PowerShell 7. In a GitHub source checkout, run `tools\tests\Test-EnvironmentCompatibility.ps1` to see exactly what is supported on a machine.
 
 ## Main File
 
-Use this single workbook:
+Each profile gets its own workbook:
 
 ```text
-output\jobs_tracker.xlsx
+output\profiles\<profile_id>\jobs_tracker.xlsx
 ```
 
-The crawler creates and updates the same workbook each time. The `output` folder is ignored by Git so your personal tracker, notes, and backups stay local.
+The crawler creates and updates the workbook for the active profile. The `output` folder is ignored by Git so your personal tracker, notes, and backups stay local.
 
 It keeps:
 
@@ -64,19 +64,19 @@ Additional sheets:
 - `Source Health`: per-platform duration, requests, cache hits, skipped counts, errors, matches
 - `Feedback Quality`: ignored rows missing structured notes, application rows missing dates, and other feedback hygiene checks
 
-Close `jobs_tracker.xlsx` before launching the crawler so Excel does not lock the file.
+Close the active profile workbook before launching the crawler so Excel does not lock the file.
 
 ## First Run
 
 1. Download or clone the repository.
 2. Double-click `Run-CustomJobTracker-GUI.vbs`.
-3. Keep the default `Digital Analytics` profile, or create a custom profile from the GUI.
+3. Click `New` in the Profile section and create your first job-search profile.
 4. Keep the default public sources enabled, or add credentials for optional API sources.
 5. Click `Create tracker` to create an empty workbook, or click `Run crawl` to create and populate it.
-6. Use `output\jobs_tracker.xlsx` as your private tracker.
+6. Use `output\profiles\<profile_id>\jobs_tracker.xlsx` as your private tracker.
 
 The public release does not include a real tracker workbook. Each user creates their own local workbook.
-Profiles, source checkboxes, and crawl modes are read from `config\profiles\`, `config\sources.json`, and `config\crawl_modes.json`, so public defaults and private local overrides stay in one place.
+Profiles are saved under ignored local config, while source checkboxes and crawl modes are read from `config\sources.json` and `config\crawl_modes.json`.
 
 ## Project Layout
 
@@ -158,7 +158,7 @@ powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -Crawl
 To run a specific profile from the command line:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -Profile digital_analytics -CrawlMode Default
+powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -Profile your_profile_id -CrawlMode Default
 ```
 
 The GUI writes custom profiles to ignored local files under `config\local\profiles\`.
@@ -192,15 +192,16 @@ Useful ignored reasons:
 - `ignore_reason=wrong_seniority; detail=`
 - `ignore_reason=wrong_location; detail=`
 - `ignore_reason=company_not_interested; detail=`
-- `ignore_reason=duplicate; detail=`
+- `ignore_reason=duplicate; company_alias=; detail=`
 - `ignore_reason=other; detail=`
 
 ## Outputs
 
 The crawler keeps these local output files:
 
-- `output\jobs_tracker.xlsx`: source of truth
-- `output\backups\*.xlsx`: recent automatic workbook backups before tracker/status updates
+- `output\profiles\<profile_id>\jobs_tracker.xlsx`: source of truth for that profile
+- `output\profiles\<profile_id>\backups\*.xlsx`: recent automatic workbook backups before tracker/status updates
+- `output\profiles\<profile_id>\launcher_logs\*`: recent GUI launcher run logs for that profile
 - `output\cache\*`: local detail-page cache for slow public sources
 - `output\run_history.jsonl`: compact local run history for troubleshooting crawl duration and source health
 
@@ -227,17 +228,17 @@ If desktop Excel is not available, it falls back to the no-Excel OpenXML workboo
 powershell -ExecutionPolicy Bypass -File .\tools\diagnostics\Test-WorkbookHealthOpenXml.ps1
 ```
 
-To compare a test crawl workbook against the current master:
+To compare a test crawl workbook against the current active profile tracker:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\diagnostics\Compare-JobTrackerWorkbooks.ps1 -CandidatePath .\output\jobs_tracker_test.xlsx
+powershell -ExecutionPolicy Bypass -File .\tools\diagnostics\Compare-JobTrackerWorkbooks.ps1 -CandidatePath .\output\profiles\<profile_id>\jobs_tracker_test.xlsx
 ```
 
 ## Public Release Privacy
 
 The repository and release assets should never contain personal or secret data:
 
-- `output\jobs_tracker.xlsx`, backups, cache, or diagnostics
+- `output\profiles\*`, backups, cache, or diagnostics
 - CVs, resumes, screenshots with credentials, or personal application notes
 - `.env`, `.key`, `.secret`, `config\local*.json`, or `config\local\*`
 - absolute machine-specific user paths
@@ -251,7 +252,7 @@ Before publishing a release, run:
 powershell -ExecutionPolicy Bypass -File .\tools\release\Test-ReleaseSafety.ps1
 ```
 
-To create a clean zip from committed public files only:
+To create a clean zip from committed public files only. The release script refuses to run when the working tree is dirty, because it archives `HEAD`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\release\New-PublicReleasePackage.ps1 -Version v1.0.0
@@ -260,12 +261,6 @@ powershell -ExecutionPolicy Bypass -File .\tools\release\New-PublicReleasePackag
 ## Profiles
 
 A profile defines the job-search intent: target titles, important skills, exclusion keywords, search queries, target/excluded locations, excluded contracts, employer preference, matching signals, and ignore-note templates.
-
-The public default profile is:
-
-```text
-config\profiles\digital_analytics.json
-```
 
 Use the GUI buttons in `Crawl setup`:
 
@@ -325,17 +320,11 @@ The final `Match` uses several dimensions:
 
 The tracker also uses your history:
 
-- at the beginning of every manual crawl, the programme reads the saved `jobs_tracker.xlsx` and builds a fresh feedback profile from your `Status` and `Apply notes`; this is recalculated from the workbook each run, so it does not accumulate duplicate learning over time
+- at the beginning of every manual crawl, the programme reads the active profile workbook and builds a fresh feedback profile from your `Status` and `Apply notes`; this is recalculated from that workbook each run, so it does not accumulate duplicate learning over time
 - similar jobs to `applied`, `interview`, `offer`, or `interesting` can receive a small score boost
 - similar jobs to `ignored` can receive a score penalty
 - ignored jobs with structured `ignore_reason=...` notes teach the crawler more precisely: SEO/SEA rejects affect marketing roles, data-engineering rejects affect dbt/Snowflake/pipeline roles, and `duplicate` does not reduce relevance
 - agency/cabinet/ESN feedback is treated as an employer-type preference: strong profile matches are kept, but annonceur roles can be favored for review
-
-For the default Digital Analytics search, tune profile titles, skills, query pools, ignored-reason templates, fit weights, and location patterns in:
-
-```text
-config\profiles\digital_analytics.json
-```
 
 More tunable values are in:
 
@@ -343,7 +332,7 @@ More tunable values are in:
 config\runtime.json        # default days, location, tracker path, cache, delays
 config\crawl_modes.json    # Fast / Default / Deep source caps
 config\sources.json        # source order, endpoints, source defaults, credential environment variable names
-config\profiles\*.json     # compact profile builders and any explicit profile overrides
+config\local\profiles\*.json # private compact profile builders created by the GUI
 config\matching_rules.json # global matching thresholds
 config\workbook.json       # workbook backend, status dropdowns, and sheet names
 ```
@@ -400,7 +389,7 @@ Jobs are merged with a hierarchy rather than one fragile key:
 4. same company alias + same role family + compatible location
 ```
 
-Company names are normalized automatically, so labels such as `NEXTON`, `Nexton Consulting`, `L'Olivier Assurance`, and `Olivier` can still meet the same-company condition when the title/location evidence also supports a duplicate. Explicit company alias groups can also be added in `config\matching_rules.json` under `deduplication.company_aliases`, or privately in `config\local.matching_rules.json`.
+Company names are normalized automatically, so labels such as short names, consulting suffixes, or parent-company suffixes can still meet the same-company condition when the title/location evidence also supports a duplicate. For manual feedback, put the canonical company name directly in `Apply notes`, for example `ignore_reason=duplicate; company_alias=Company Name; detail=same posting on another source`. The crawler reads this from the active profile workbook on the next run; no hard-coded company names are needed.
 
 Jobs are still not merged by company alone. The alias layer only helps when URL, source id, title similarity, role family, or location compatibility supports the duplicate. This helps catch:
 
@@ -423,26 +412,12 @@ Optional sources that require user-provided credentials:
 
 - France Travail API: `FRANCE_TRAVAIL_CLIENT_ID`, `FRANCE_TRAVAIL_CLIENT_SECRET`, optional `FRANCE_TRAVAIL_SCOPE`
 - Adzuna API: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`
-- WelcomeKit official API: `WK_API_KEY`
 
-Credentialed sources are disabled by default in the public config. Enable them from the GUI source checkboxes, with `-EnableSource <source_key>`, or through a local config override. The legacy per-source switches such as `-EnableFranceTravail`, `-EnableAdzuna`, and `-EnableWelcomeKit` are still supported for compatibility.
+Credentialed sources are disabled by default in the public config. Enable them from the GUI source checkboxes, with `-EnableSource <source_key>`, or through a local config override. The legacy per-source switches such as `-EnableFranceTravail` and `-EnableAdzuna` are still supported for compatibility.
 
 ## Welcome To The Jungle
 
-The script supports the official WelcomeKit API when a token is available:
-
-```powershell
-$env:WK_API_KEY = "your_api_key"
-powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -EnableSource welcome_kit
-```
-
-To persist the token for future manual runs:
-
-```powershell
-[Environment]::SetEnvironmentVariable("WK_API_KEY", "your_api_key", "User")
-```
-
-Without `WK_API_KEY`, it uses a public WTTJ sitemap fallback.
+Welcome to the Jungle is crawled through public job sitemaps and public job pages only. It does not need a token and is enabled by default as `wttj_public`.
 
 ## Credential Storage
 
@@ -451,7 +426,6 @@ The JSON config files store credential variable names only. The real credential 
 You can set or update credentials from the GUI with `Set credential`, or with PowerShell:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("WK_API_KEY", "your_api_key", "User")
 [Environment]::SetEnvironmentVariable("FRANCE_TRAVAIL_CLIENT_ID", "your_client_id", "User")
 [Environment]::SetEnvironmentVariable("FRANCE_TRAVAIL_CLIENT_SECRET", "your_client_secret", "User")
 [Environment]::SetEnvironmentVariable("ADZUNA_APP_ID", "your_app_id", "User")
@@ -530,7 +504,7 @@ The default workbook backend is configured in `config\workbook.json`:
 "output_backend": "auto"
 ```
 
-- `auto`: use desktop Excel COM when available; otherwise create `jobs_tracker.xlsx` with the built-in OpenXML writer
+- `auto`: use desktop Excel COM when available; otherwise create the active profile workbook with the built-in OpenXML writer
 - `excel`: require desktop Excel COM and fail clearly if it is missing
 - `openxml`: always use the no-Excel XLSX writer
 
@@ -554,9 +528,9 @@ powershell -ExecutionPolicy Bypass -File .\tools\tests\Test-EnvironmentCompatibi
 
 ## Maintenance
 
-- Close `jobs_tracker.xlsx` before crawling, formatting, or updating status.
-- Keep `output\jobs_tracker.xlsx` as the only working tracker file.
-- Keep recent files in `output\backups` only for rollback; old backups are pruned automatically.
+- Close the active profile workbook before crawling, formatting, or updating status.
+- Keep one working tracker per profile under `output\profiles\<profile_id>\`.
+- Keep recent files in `output\profiles\<profile_id>\backups` only for rollback; old backups are pruned automatically.
 - Daily runnable scripts live in `app\cli\`.
 - Runtime modules live in `app\core\`.
 - Hard workflow gates live in `app\core\JobTracker.Pipeline.ps1`; change this module when a rule must apply to every source and merge/export path.
@@ -585,10 +559,10 @@ powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -DaysB
 You can disable individual sources for diagnostics. Use a comma-separated list when passing several source keys:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -SkipSource france_travail,adzuna,apec,hellowork,wttj_public,welcome_kit,linkedin
+powershell -ExecutionPolicy Bypass -File .\app\cli\Find-AnalyticsJobs.ps1 -SkipSource france_travail,adzuna,apec,hellowork,wttj_public,linkedin
 ```
 
-For Welcome to the Jungle specifically, `wttj_public` controls the public fallback and `welcome_kit` controls the official API. Legacy switches such as `-SkipWttj`, `-DisableWttjPublicFallback`, and `-DisableWelcomeKit` are still supported for compatibility.
+For Welcome to the Jungle specifically, `wttj_public` controls the public crawler. Legacy switches such as `-SkipWttj` and `-DisableWttjPublicFallback` are still supported for compatibility.
 
 Useful speed knobs:
 

@@ -32,7 +32,7 @@ function Get-TrackedFiles {
     }
 
     if ($gitFiles.Count -gt 0) {
-        return @($gitFiles)
+        return @($gitFiles | Where-Object { Test-Path -LiteralPath (Join-Path $resolvedRoot $_) })
     }
 
     return @(Get-ChildItem -Path $resolvedRoot -File -Recurse -Force |
@@ -56,6 +56,9 @@ foreach ($file in $normalizedFiles) {
     }
     if ($file -match "(^|/)config/local(\.|/)") {
         Add-ReleaseIssue "Tracked local config override is not public-safe: $file"
+    }
+    if ($file -match "(^|/)config/profiles/[^/]+\.json$") {
+        Add-ReleaseIssue "Tracked job-search profile is not public-safe: $file"
     }
     if ($file -match "\.(xlsx|xlsm|xls|pdf|env|key|secret|pfx|pem|p12|log|tmp|zip)$") {
         Add-ReleaseIssue "Tracked file type should not be in a clean release: $file"

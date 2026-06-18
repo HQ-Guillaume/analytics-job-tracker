@@ -360,15 +360,21 @@ function Get-JobCrawlerConfig {
     $runtimeForProfileSelection = Merge-JobCrawlerLocalConfig -Root $root -Name "runtime" -Value $runtimeBase -AppliedOverrides $null
     $selectedProfileId = ConvertTo-JobCrawlerProfileId $ProfileId
     if ([string]::IsNullOrWhiteSpace($selectedProfileId)) {
-        $selectedProfileId = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigPathValue -Object $runtimeForProfileSelection -Path "defaults.profile_id" -DefaultValue "digital_analytics"))
+        $selectedProfileId = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigPathValue -Object $runtimeForProfileSelection -Path "defaults.profile_id" -DefaultValue ""))
     }
     if ([string]::IsNullOrWhiteSpace($selectedProfileId)) {
-        $selectedProfileId = "digital_analytics"
+        $profileSummaries = @(Get-JobCrawlerProfileSummaries -ConfigDirectory $root | Sort-Object IsLocal, Label, Id)
+        if ($profileSummaries.Count -gt 0) {
+            $selectedProfileId = [string]$profileSummaries[0].Id
+        }
     }
 
-    $profile = Read-JobCrawlerProfile -Root $root -ProfileId $selectedProfileId -AppliedOverrides $appliedOverrides
-    if ($null -eq $profile) {
-        throw "Job crawler profile '$selectedProfileId' was not found. Create it in config\profiles or config\local\profiles."
+    $profile = $null
+    if (-not [string]::IsNullOrWhiteSpace($selectedProfileId)) {
+        $profile = Read-JobCrawlerProfile -Root $root -ProfileId $selectedProfileId -AppliedOverrides $appliedOverrides
+        if ($null -eq $profile) {
+            throw "Job crawler profile '$selectedProfileId' was not found. Open the GUI and create or select a profile."
+        }
     }
 
     $runtimeConfig = Merge-JobCrawlerProfileSection -Base $runtimeBase -Profile $profile -SectionName "runtime"
@@ -390,8 +396,9 @@ function Get-JobCrawlerConfig {
         LocalOverrides = @($appliedOverrides.ToArray())
         Profile        = [PSCustomObject]@{
             Id          = $selectedProfileId
-            Label       = [string](Get-ConfigProperty -Object $profile -Name "label" -DefaultValue $selectedProfileId)
-            Description = [string](Get-ConfigProperty -Object $profile -Name "description" -DefaultValue "")
+            Label       = $(if ($null -eq $profile) { "No profile configured" } else { [string](Get-ConfigProperty -Object $profile -Name "label" -DefaultValue $selectedProfileId) })
+            Description = $(if ($null -eq $profile) { "Create a profile in the GUI before crawling." } else { [string](Get-ConfigProperty -Object $profile -Name "description" -DefaultValue "") })
+            IsConfigured = ($null -ne $profile)
             Raw         = $profile
         }
         Runtime        = $runtimeConfig
@@ -401,6 +408,105 @@ function Get-JobCrawlerConfig {
         Workbook       = $workbookConfig
         Preferences    = $preferencesConfig
     }
+}
+
+function New-JobCrawlerConfigWithProfile {
+    param(
+        [AllowNull()]$Config,
+        [AllowNull()]$Profile
+    )
+
+    if ($null -eq $Config) {
+        throw "Base crawler config is required."
+    }
+    if ($null -eq $Profile) {
+        throw "Profile is required."
+    }
+
+    $expandedProfile = Expand-JobCrawlerProfile -Profile $Profile
+    $profileId = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigProperty -Object $expandedProfile -Name "id" -DefaultValue ""))
+    if ([string]::IsNullOrWhiteSpace($profileId)) {
+        throw "Profile id is required."
+    }
+
+    return [PSCustomObject]@{
+        Root           = [string](Get-ConfigProperty -Object $Config -Name "Root" -DefaultValue "")
+        LocalOverrides = @(Get-ConfigProperty -Object $Config -Name "LocalOverrides" -DefaultValue @())
+        Profile        = [PSCustomObject]@{
+            Id           = $profileId
+            Label        = [string](Get-ConfigProperty -Object $expandedProfile -Name "label" -DefaultValue $profileId)
+            Description  = [string](Get-ConfigProperty -Object $expandedProfile -Name "description" -DefaultValue "")
+            IsConfigured = $true
+            Raw          = $expandedProfile
+        }
+        Runtime        = Merge-JobCrawlerProfileSection -Base (Get-ConfigProperty -Object $Config -Name "Runtime" -DefaultValue ([PSCustomObject]@{})) -Profile $expandedProfile -SectionName "runtime"
+        CrawlModes     = Merge-JobCrawlerProfileSection -Base (Get-ConfigProperty -Object $Config -Name "CrawlModes" -DefaultValue ([PSCustomObject]@{})) -Profile $expandedProfile -SectionName "crawl_modes"
+        Sources        = Merge-JobCrawlerProfileSection -Base (Get-ConfigProperty -Object $Config -Name "Sources" -DefaultValue ([PSCustomObject]@{})) -Profile $expandedProfile -SectionName "sources"
+        MatchingRules  = Merge-JobCrawlerProfileSection -Base (Get-ConfigProperty -Object $Config -Name "MatchingRules" -DefaultValue ([PSCustomObject]@{})) -Profile $expandedProfile -SectionName "matching_rules"
+        Workbook       = Merge-JobCrawlerProfileSection -Base (Get-ConfigProperty -Object $Config -Name "Workbook" -DefaultValue ([PSCustomObject]@{})) -Profile $expandedProfile -SectionName "workbook"
+        Preferences    = Merge-JobCrawlerProfileSection -Base (Get-ConfigProperty -Object $Config -Name "Preferences" -DefaultValue ([PSCustomObject]@{})) -Profile $expandedProfile -SectionName "preferences"
+    }
+}
+
+function Test-JobCrawlerProfileConfigured {
+    param([AllowNull()]$Config)
+
+    if ($null -eq $Config -or $null -eq $Config.Profile) {
+        return $false
+    }
+
+    return [bool](Get-ConfigProperty -Object $Config.Profile -Name "IsConfigured" -DefaultValue $false)
+}
+
+function Expand-JobCrawlerProfilePathTemplate {
+    param(
+        [AllowNull()][string]$Path,
+        [AllowNull()]$Config
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    if (-not (Test-JobCrawlerProfileConfigured -Config $Config)) {
+        return ([string]$Path) -replace "\{profile_id\}", "unconfigured" -replace "\{profile\}", "unconfigured"
+    }
+
+    $profileId = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigProperty -Object $Config.Profile -Name "Id" -DefaultValue ""))
+    if ([string]::IsNullOrWhiteSpace($profileId)) {
+        $profileId = "profile"
+    }
+
+    return ([string]$Path) -replace "\{profile_id\}", $profileId -replace "\{profile\}", $profileId
+}
+
+function Get-JobCrawlerTrackerPath {
+    param(
+        [string]$ProjectRoot,
+        [AllowNull()]$Config,
+        [AllowNull()][string]$TrackerPath = ""
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($TrackerPath)) {
+        return Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path $TrackerPath
+    }
+
+    $runtimeConfig = Get-ConfigProperty -Object $Config -Name "Runtime" -DefaultValue $null
+    $configuredPath = [string](Get-ConfigPathValue -Object $runtimeConfig -Path "defaults.tracker_path" -DefaultValue "output\profiles\{profile_id}\jobs_tracker.xlsx")
+    if ([string]::IsNullOrWhiteSpace($configuredPath)) {
+        $configuredPath = "output\profiles\{profile_id}\jobs_tracker.xlsx"
+    }
+
+    if ((Test-JobCrawlerProfileConfigured -Config $Config) -and $configuredPath -notmatch "\{profile(_id)?\}") {
+        $normalized = $configuredPath.Replace("/", "\").ToLowerInvariant()
+        if ($normalized -eq "output\jobs_tracker.xlsx") {
+            $profileId = ConvertTo-JobCrawlerProfileId ([string](Get-ConfigProperty -Object $Config.Profile -Name "Id" -DefaultValue "profile"))
+            $configuredPath = "output\profiles\{0}\jobs_tracker.xlsx" -f $profileId
+        }
+    }
+
+    $expandedPath = Expand-JobCrawlerProfilePathTemplate -Path $configuredPath -Config $Config
+    return Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path $expandedPath
 }
 
 function ConvertTo-ConfigBoolean {
@@ -449,7 +555,7 @@ function Get-JobCrawlerConfiguredSourceOrder {
 
     if ($sourceOrder.Count -eq 0) {
         # Last-resort compatibility for older local configs that predate sources.json.
-        $sourceOrder = @("apec", "hellowork", "wttj_public", "linkedin", "france_travail", "adzuna", "welcome_kit")
+        $sourceOrder = @("apec", "hellowork", "wttj_public", "linkedin", "france_travail", "adzuna")
     }
 
     return @($sourceOrder | Select-Object -Unique)
@@ -468,7 +574,7 @@ function Get-JobCrawlerSourceDefinitions {
             Label = "HelloWork"; Enabled = $true; Credentials = $false; Function = "Get-HelloWorkJobs"; Skip = "SkipHelloWork"; Enable = ""; FallbackFor = ""
         }
         wttj_public = @{
-            Label = "Welcome to the Jungle public"; Enabled = $true; Credentials = $false; Function = "Get-WttjPublicFallbackJobs"; Skip = "DisableWttjPublicFallback"; Enable = ""; FallbackFor = "welcome_kit"
+            Label = "Welcome to the Jungle public"; Enabled = $true; Credentials = $false; Function = "Get-WttjPublicFallbackJobs"; Skip = "DisableWttjPublicFallback"; Enable = ""; FallbackFor = ""
         }
         linkedin = @{
             Label = "LinkedIn public guest"; Enabled = $true; Credentials = $false; Function = "Get-LinkedInJobs"; Skip = "SkipLinkedIn"; Enable = ""; FallbackFor = ""
@@ -478,9 +584,6 @@ function Get-JobCrawlerSourceDefinitions {
         }
         adzuna = @{
             Label = "Adzuna API"; Enabled = $false; Credentials = $true; Function = "Get-AdzunaJobs"; Skip = "SkipAdzuna"; Enable = "EnableAdzuna"; FallbackFor = ""
-        }
-        welcome_kit = @{
-            Label = "WelcomeKit API"; Enabled = $false; Credentials = $true; Function = "Get-WelcomeKitJobs"; Skip = "DisableWelcomeKit"; Enable = "EnableWelcomeKit"; FallbackFor = ""
         }
     }
 
@@ -615,20 +718,22 @@ function Test-JobCrawlerConfig {
         $issues.Add("Missing matching_rules.thresholds.minimum_match_score") | Out-Null
     }
 
-    $linkedInQueries = Get-JobCrawlerSourceQueryList -SourcesConfig $Config.Sources -SourceKey "linkedin" -FallbackKeys @("api")
-    if ($linkedInQueries.Count -eq 0) {
-        $issues.Add("Missing sources.queries.linkedin") | Out-Null
+    if (Test-JobCrawlerProfileConfigured -Config $Config) {
+        $linkedInQueries = @(Get-JobCrawlerSourceQueryList -SourcesConfig $Config.Sources -SourceKey "linkedin" -FallbackKeys @("api"))
+        if ($linkedInQueries.Count -eq 0) {
+            $issues.Add("Missing sources.queries.linkedin") | Out-Null
+        }
+
+        $searchSourceKeys = @("hellowork", "apec", "france_travail", "adzuna")
+        $searchSourceQueryCounts = @($searchSourceKeys | ForEach-Object {
+            @(Get-JobCrawlerSourceQueryList -SourcesConfig $Config.Sources -SourceKey $_ -FallbackKeys @("api")).Count
+        })
+        if (@($searchSourceQueryCounts | Where-Object { $_ -gt 0 }).Count -eq 0) {
+            $issues.Add("Missing source search queries. Configure sources.queries.api or per-source query lists.") | Out-Null
+        }
     }
 
-    $searchSourceKeys = @("hellowork", "apec", "france_travail", "adzuna")
-    $searchSourceQueryCounts = @($searchSourceKeys | ForEach-Object {
-        @(Get-JobCrawlerSourceQueryList -SourcesConfig $Config.Sources -SourceKey $_ -FallbackKeys @("api")).Count
-    })
-    if (@($searchSourceQueryCounts | Where-Object { $_ -gt 0 }).Count -eq 0) {
-        $issues.Add("Missing source search queries. Configure sources.queries.api or per-source query lists.") | Out-Null
-    }
-
-    $statusOptions = Get-ConfigStringArray (Get-ConfigPathValue -Object $Config.Workbook -Path "status_options" -DefaultValue @())
+    $statusOptions = @(Get-ConfigStringArray (Get-ConfigPathValue -Object $Config.Workbook -Path "status_options" -DefaultValue @()))
     if ($statusOptions.Count -gt 0 -and "new" -notin $statusOptions) {
         $issues.Add("workbook.status_options must include 'new'") | Out-Null
     }

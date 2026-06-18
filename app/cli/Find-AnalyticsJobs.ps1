@@ -3,7 +3,6 @@ param(
     [int]$DaysBack = 7,
     [string]$Location = "France",
     [string]$TrackerPath = "",
-    [string]$WelcomeKitApiKey = $env:WK_API_KEY,
     [string]$FranceTravailClientId = $env:FRANCE_TRAVAIL_CLIENT_ID,
     [string]$FranceTravailClientSecret = $env:FRANCE_TRAVAIL_CLIENT_SECRET,
     [string]$FranceTravailScope = $(if ([string]::IsNullOrWhiteSpace($env:FRANCE_TRAVAIL_SCOPE)) { "api_offresdemploiv2 o2dsoffre" } else { $env:FRANCE_TRAVAIL_SCOPE }),
@@ -18,7 +17,6 @@ param(
     [int]$MaxHelloWorkPages = 1,
     [int]$MaxHelloWorkCardsPerQuery = 20,
     [int]$MaxHelloWorkDetails = 50,
-    [int]$MaxWelcomeKitPages = 10,
     [int]$MaxWttjCandidatePages = 120,
     [int]$MaxBackups = 5,
     [string]$Profile = "",
@@ -32,8 +30,6 @@ param(
     [switch]$SkipWttj,
     [switch]$EnableFranceTravail,
     [switch]$EnableAdzuna,
-    [switch]$EnableWelcomeKit,
-    [switch]$DisableWelcomeKit,
     [switch]$DisableWttjPublicFallback,
     [switch]$DisableCache,
     [int]$CacheTtlHours = 24,
@@ -76,13 +72,48 @@ $JobCrawlerSourcesConfig = $JobCrawlerConfig.Sources
 $JobCrawlerMatchingRules = $JobCrawlerConfig.MatchingRules
 $JobCrawlerWorkbookConfig = $JobCrawlerConfig.Workbook
 
+if ($SelfTest) {
+    $selfTestProfile = New-JobCrawlerProfileFromBuilder `
+        -Label "Digital Analytics Self Test" `
+        -Id "digital_analytics_self_test" `
+        -Description "Built-in deterministic profile used only by crawler self-tests." `
+        -TargetTitles @("Web Analyst", "Digital Analyst", "Digital Analytics Consultant", "Tracking Specialist", "Expert Tracking", "CRO Analyst", "Product Analyst") `
+        -ImportantSkills @("Google Analytics", "GA4", "Google Tag Manager", "Piano Analytics", "ContentSquare", "Adobe Analytics", "dataLayer", "CMP", "Tag Commander", "Commanders Act", "Tealium", "server-side", "RGPD", "CRO") `
+        -ExclusionKeywords @("SEO", "SEA", "digital marketing", "data engineer", "analytics engineer", "dbt", "snowflake", "data warehouse", "airflow") `
+        -SearchQueries @("web analyst", "digital analyst", "digital analytics consultant", "tracking analyst", "product analyst cro") `
+        -TargetLocations @("France", "Paris", "Ile-de-France", "Remote France") `
+        -ExcludedLocations @("London", "New York", "Casablanca") `
+        -ExcludedContracts @("CDD", "Apprenticeship", "Internship", "Freelance") `
+        -EmployerPreference "annonceur"
+
+    $JobCrawlerConfig = New-JobCrawlerConfigWithProfile -Config $JobCrawlerConfig -Profile $selfTestProfile
+    $JobCrawlerRuntimeConfig = $JobCrawlerConfig.Runtime
+    $JobCrawlerSourcesConfig = $JobCrawlerConfig.Sources
+    $JobCrawlerMatchingRules = $JobCrawlerConfig.MatchingRules
+    $JobCrawlerWorkbookConfig = $JobCrawlerConfig.Workbook
+}
+
 $configValidation = Test-JobCrawlerConfig -Config $JobCrawlerConfig
 if (-not $configValidation.IsValid) {
+    if ($ValidateConfig) {
+        Write-Host "Crawler config validation failed:"
+        foreach ($issue in @($configValidation.Issues)) {
+            Write-Host "- $issue"
+        }
+        exit 1
+    }
+
     throw ("Invalid crawler config:`n- {0}" -f (($configValidation.Issues) -join "`n- "))
 }
 if ($ValidateConfig) {
     Write-Host "Crawler config validation passed."
+    if (-not (Test-JobCrawlerProfileConfigured -Config $JobCrawlerConfig)) {
+        Write-Host "No job profile is configured yet. Open the GUI and create a profile before crawling."
+    }
     return
+}
+if (-not (Test-JobCrawlerProfileConfigured -Config $JobCrawlerConfig)) {
+    throw "No job profile is configured. Open the GUI, click New in the Profile section, create a profile, then run the crawler."
 }
 
 if (-not $PSBoundParameters.ContainsKey("DaysBack")) { $DaysBack = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.days_back" -DefaultValue 7) }
@@ -91,7 +122,6 @@ if (-not $PSBoundParameters.ContainsKey("CrawlMode")) { $CrawlMode = [string](Ge
 if (-not $PSBoundParameters.ContainsKey("MaxBackups")) { $MaxBackups = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.max_backups" -DefaultValue 5) }
 if (-not $PSBoundParameters.ContainsKey("CacheTtlHours")) { $CacheTtlHours = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_ttl_hours" -DefaultValue 24) }
 
-if (-not $PSBoundParameters.ContainsKey("WelcomeKitApiKey")) { $WelcomeKitApiKey = Get-JobCrawlerCredentialValue -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "welcome_kit" -CredentialKey "api_key" -FallbackValue $WelcomeKitApiKey }
 if (-not $PSBoundParameters.ContainsKey("FranceTravailClientId")) { $FranceTravailClientId = Get-JobCrawlerCredentialValue -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "france_travail" -CredentialKey "client_id" -FallbackValue $FranceTravailClientId }
 if (-not $PSBoundParameters.ContainsKey("FranceTravailClientSecret")) { $FranceTravailClientSecret = Get-JobCrawlerCredentialValue -SourcesConfig $JobCrawlerSourcesConfig -SourceKey "france_travail" -CredentialKey "client_secret" -FallbackValue $FranceTravailClientSecret }
 if (-not $PSBoundParameters.ContainsKey("FranceTravailScope")) {
@@ -142,7 +172,7 @@ foreach ($source in $SourceDefinitions) {
     if (-not [string]::IsNullOrWhiteSpace([string]$source.EnableSwitch) -and $PSBoundParameters.ContainsKey([string]$source.EnableSwitch)) {
         $enabled = $true
     }
-    if ($SkipWttj -and ([string]$source.Key -in @("wttj_public", "welcome_kit"))) {
+    if ($SkipWttj -and ([string]$source.Key -eq "wttj_public")) {
         $enabled = $false
     }
     if ($SkippedSourceKeys.ContainsKey($normalizedSourceKey)) {
@@ -158,9 +188,6 @@ foreach ($source in $SourceDefinitions) {
     $SourceEnabled[[string]$source.Key] = $enabled
 }
 
-$welcomeKitSourceEnabled = [bool]$SourceEnabled["welcome_kit"]
-if (-not $welcomeKitSourceEnabled) { $WelcomeKitApiKey = "" }
-
 $modeConfig = Get-ConfigPathValue -Object $JobCrawlerConfig.CrawlModes -Path ("modes.{0}" -f $CrawlMode) -DefaultValue $null
 if ($null -eq $modeConfig) {
     throw "Unknown crawl mode '$CrawlMode'. Configure it in config\crawl_modes.json."
@@ -174,7 +201,6 @@ $crawlModeParameterMap = @{
     MaxHelloWorkPages        = "max_hellowork_pages"
     MaxHelloWorkCardsPerQuery = "max_hellowork_cards_per_query"
     MaxHelloWorkDetails      = "max_hellowork_details"
-    MaxWelcomeKitPages       = "max_welcome_kit_pages"
     MaxWttjCandidatePages    = "max_wttj_candidate_pages"
 }
 foreach ($parameterName in $crawlModeParameterMap.Keys) {
@@ -191,7 +217,7 @@ $Cutoff = [DateTimeOffset]::Now.AddDays(-[Math]::Abs($DaysBack))
 $CutoffDate = $Cutoff.ToString("yyyy-MM-dd")
 $RunDate = Get-Date -Format "yyyy-MM-dd"
 $RunStamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$DefaultTrackerPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
+$DefaultTrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $ProjectRoot -Config $JobCrawlerConfig
 $CacheDirectory = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.cache_directory" -DefaultValue "output\cache"))
 $RunHistoryPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.run_history_path" -DefaultValue "output\run_history.jsonl"))
 $RunHistoryMaxEntries = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "output.run_history_max_entries" -DefaultValue 250)
@@ -200,7 +226,7 @@ if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
     $TrackerPath = $DefaultTrackerPath
 }
 if ([IO.Path]::GetExtension($TrackerPath).ToLowerInvariant() -ne ".xlsx") {
-    throw "This crawler uses only the XLSX tracker file. Use output\jobs_tracker.xlsx for -TrackerPath."
+    throw "This crawler uses only XLSX tracker files. Use a .xlsx path for -TrackerPath."
 }
 
 $SeenResultKeys = @{}
@@ -378,6 +404,12 @@ $ColumnLabels = Get-JobTrackerColumnLabels
 
 $JobCrawlerPreferences = Get-JobCrawlerPreferences
 
+if ($SelfTest) {
+    Invoke-ScoringSelfTest
+    Write-Host "Crawler self-test passed."
+    return
+}
+
 $JobCrawlerContext = New-JobCrawlerContext -ProjectRoot $ProjectRoot -ConfigDirectory $configPath -Config $JobCrawlerConfig -Runtime @{
     BrowserUserAgent = $BrowserUserAgent
     Cutoff = $Cutoff
@@ -397,11 +429,6 @@ $JobCrawlerContext = New-JobCrawlerContext -ProjectRoot $ProjectRoot -ConfigDire
     LoadedSourceAdapters = $LoadedSourceAdapters
 }
 Set-JobCrawlerScriptContext -Context $JobCrawlerContext | Out-Null
-
-if ($SelfTest) {
-    Invoke-ScoringSelfTest
-    return
-}
 
 Set-RunWindowTitle "Custom Job Tracker - Starting"
 Write-RunStatus ("Starting crawl for jobs published since {0}." -f $CutoffDate)
@@ -428,16 +455,6 @@ $sourceResultCounts = @{}
 foreach ($source in $SourceDefinitions) {
     $sourceKey = [string]$source.Key
     if (-not [bool]$SourceEnabled[$sourceKey]) {
-        continue
-    }
-
-    if ($sourceKey -eq "welcome_kit" -and [string]::IsNullOrWhiteSpace($WelcomeKitApiKey)) {
-        Write-RunStatus "WelcomeKit source enabled but WK_API_KEY is not set; WTTJ public fallback remains available."
-        continue
-    }
-
-    if ($sourceKey -eq "wttj_public" -and $welcomeKitSourceEnabled -and -not [string]::IsNullOrWhiteSpace($WelcomeKitApiKey)) {
-        Write-RunStatus "Skipping WTTJ public fallback because WelcomeKit API is enabled and configured."
         continue
     }
 
@@ -493,6 +510,7 @@ if ($DiagnosticMode) {
     Write-RunStatus ("Diagnostics written: {0}" -f $diagnosticPath)
 }
 
+Set-DedupeFeedbackCompanyAliases -Rows (@($filteredCrawlResults) + @($existingTrackerRows))
 $feedbackAdjustedResults = @(Apply-FeedbackScoring -Rows $filteredCrawlResults -ExistingRows $existingTrackerRows)
 $mergeResult = Merge-JobsWithTracker -CurrentRows $feedbackAdjustedResults -ExistingRows $existingTrackerRows -Path $TrackerPath -SkipBackup:$DryRun
 $finalResults = @($mergeResult.TrackerRows)
@@ -507,7 +525,6 @@ $crawlCaps = @(
     "HelloWork pages $MaxHelloWorkPages"
     "HelloWork cards/query $MaxHelloWorkCardsPerQuery"
     "HelloWork details $MaxHelloWorkDetails"
-    "WelcomeKit pages $MaxWelcomeKitPages"
     "WTTJ candidates $MaxWttjCandidatePages"
 ) -join " | "
 

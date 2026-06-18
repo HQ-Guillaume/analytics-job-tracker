@@ -28,7 +28,16 @@ function New-OrderedJobRecord {
     $ordered = [ordered]@{}
     foreach ($column in $MasterColumns) {
         if ($Values.ContainsKey($column) -and $null -ne $Values[$column]) {
-            $ordered[$column] = Repair-DisplayText ([string]$Values[$column])
+            $value = Repair-DisplayText ([string]$Values[$column])
+            if ($column -eq "company_name") {
+                if (Get-Command Get-DedupeCompanyDisplayName -ErrorAction SilentlyContinue) {
+                    $value = Get-DedupeCompanyDisplayName $value
+                }
+                else {
+                    $value = ([string]$value).Trim().ToLowerInvariant()
+                }
+            }
+            $ordered[$column] = $value
         }
         else {
             $ordered[$column] = ""
@@ -864,7 +873,7 @@ function Import-TrackerRows {
 
     if (Test-Path $Path) {
         if ([IO.Path]::GetExtension($Path).ToLowerInvariant() -ne ".xlsx") {
-            throw "Unsupported tracker file type. This project uses only output\jobs_tracker.xlsx."
+            throw "Unsupported tracker file type. This project uses only XLSX tracker workbooks."
         }
 
         return @(Import-TrackerRowsFromXlsx -Path $Path)

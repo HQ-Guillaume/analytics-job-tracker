@@ -14,6 +14,14 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 & (Join-Path $PSScriptRoot "Test-ReleaseSafety.ps1") -ProjectRoot $resolvedRoot
 
+$gitStatus = @(git -C $resolvedRoot status --porcelain)
+if ($LASTEXITCODE -ne 0) {
+    throw "git status failed."
+}
+if ($gitStatus.Count -gt 0) {
+    throw "Working tree is not clean. Commit or discard changes before creating a public release package, because this tool archives HEAD."
+}
+
 $distDirectory = Join-Path $resolvedRoot "dist"
 if (-not (Test-Path -LiteralPath $distDirectory)) {
     New-Item -ItemType Directory -Path $distDirectory -Force | Out-Null

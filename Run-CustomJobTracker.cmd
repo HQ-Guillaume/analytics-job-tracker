@@ -9,7 +9,7 @@ echo Started: %DATE% %TIME%
 echo.
 echo The window title and timestamped lines show the current stage.
 echo The crawl can take a few minutes, especially during LinkedIn detail fetches.
-echo Main file: output\jobs_tracker.xlsx
+echo Main file: output\profiles\^<profile_id^>\jobs_tracker.xlsx
 echo.
 
 set "CRAWL_MODE=%~1"
@@ -40,8 +40,8 @@ if "%CRAWLER_EXIT_CODE%"=="0" (
     title Custom Job Tracker - Error
     echo Finished with error code %CRAWLER_EXIT_CODE%.
 )
-echo Tracker workbook and backups are in:
-echo %~dp0output
+echo Tracker workbook and backups are in the active profile folder under:
+echo %~dp0output\profiles
 echo.
 pause
 exit /b %CRAWLER_EXIT_CODE%

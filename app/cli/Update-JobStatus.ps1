@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$TrackerPath = "",
+    [string]$ConfigDirectory = "config",
+    [string]$Profile = "",
     [string]$JobId = "",
     [string]$Url = "",
     [string]$TitleContains = "",
@@ -20,16 +22,25 @@ $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $CoreRoot = Join-Path $ProjectRoot "app\core"
 
 . (Join-Path $CoreRoot "JobTracker.Common.ps1")
+. (Join-Path $CoreRoot "JobTracker.Config.ps1")
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Join-Path $ProjectRoot "output\jobs_tracker.xlsx"
+    $configPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path $ConfigDirectory
+    $jobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath -ProfileId $Profile
+    if (-not (Test-JobCrawlerProfileConfigured -Config $jobCrawlerConfig)) {
+        throw "No job profile is configured. Provide -TrackerPath explicitly or create/select a profile first."
+    }
+    $TrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $ProjectRoot -Config $jobCrawlerConfig
+}
+else {
+    $TrackerPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path $TrackerPath
 }
 
 if (-not (Test-Path $TrackerPath)) {
     throw "Tracker file not found: $TrackerPath"
 }
 if ([IO.Path]::GetExtension($TrackerPath).ToLowerInvariant() -ne ".xlsx") {
-    throw "This project uses only the XLSX tracker file. Use output\jobs_tracker.xlsx for -TrackerPath."
+    throw "This project uses only XLSX tracker files. Use a .xlsx path for -TrackerPath."
 }
 
 if ([string]::IsNullOrWhiteSpace($JobId) -and [string]::IsNullOrWhiteSpace($Url) -and [string]::IsNullOrWhiteSpace($TitleContains)) {

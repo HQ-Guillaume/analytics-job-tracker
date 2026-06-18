@@ -3,14 +3,14 @@
                      "days_back":  7,
                      "location":  "France",
                      "crawl_mode":  "Default",
-                     "tracker_path":  "output\\jobs_tracker.xlsx",
+                     "tracker_path":  "output\\profiles\\{profile_id}\\jobs_tracker.xlsx",
                      "cache_directory":  "output\\cache",
                      "cache_ttl_hours":  24,
                      "cache_prune_enabled":  true,
                      "cache_max_age_days":  30,
                      "cache_max_mb":  250,
                      "max_backups":  5,
-                     "profile_id":  "digital_analytics"
+                     "profile_id":  ""
                  },
     "output":  {
                    "diagnostics_directory":  "output\\diagnostics",

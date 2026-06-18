@@ -20,6 +20,29 @@ foreach ($sourceAdapter in $script:LoadedSourceAdapters) {
     . $sourceAdapter.Path
 }
 
+$script:IntegrationTempRoot = Join-Path ([IO.Path]::GetTempPath()) ("custom-job-tracker-integration-config-{0}" -f ([Guid]::NewGuid().ToString("N")))
+$script:IntegrationConfigDirectory = Join-Path $script:IntegrationTempRoot "config"
+New-Item -ItemType Directory -Path $script:IntegrationTempRoot -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $projectRoot "config") -Destination $script:IntegrationConfigDirectory -Recurse -Force
+Remove-Item -LiteralPath (Join-Path $script:IntegrationConfigDirectory "local") -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -LiteralPath $script:IntegrationConfigDirectory -Filter "local*.json" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+
+$integrationProfile = New-JobCrawlerProfileFromBuilder `
+    -Label "Integration Analytics" `
+    -Id "integration_analytics" `
+    -TargetTitles @("Web Analyst", "Digital Analytics Consultant", "Tracking Analyst", "Product Analyst", "CRO Analyst") `
+    -ImportantSkills @("Google Analytics", "GA4", "Google Tag Manager", "Piano Analytics", "ContentSquare", "dataLayer", "Tag Commander", "Tealium", "server-side", "RGPD", "CRO") `
+    -ExclusionKeywords @("SEO", "SEA", "data engineer", "dbt", "snowflake") `
+    -SearchQueries @("web analyst", "digital analytics", "tracking analyst", "product analyst cro") `
+    -TargetLocations @("France", "Paris") `
+    -ExcludedLocations @("London", "New York") `
+    -ExcludedContracts @("CDD", "Apprenticeship", "Internship", "Freelance") `
+    -EmployerPreference "annonceur" `
+    -Compact
+[void](Save-JobCrawlerLocalProfile -ConfigDirectory $script:IntegrationConfigDirectory -Profile $integrationProfile)
+[void](Set-JobCrawlerDefaultProfile -ConfigDirectory $script:IntegrationConfigDirectory -ProfileId "integration_analytics")
+
 function Assert-Integration {
     param(
         [bool]$Condition,
@@ -31,7 +54,7 @@ function Assert-Integration {
     }
 }
 
-$script:JobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory (Join-Path $projectRoot "config")
+$script:JobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $script:IntegrationConfigDirectory
 $script:JobCrawlerRuntimeConfig = $script:JobCrawlerConfig.Runtime
 $script:JobCrawlerSourcesConfig = $script:JobCrawlerConfig.Sources
 $script:JobCrawlerMatchingRules = $script:JobCrawlerConfig.MatchingRules
@@ -52,7 +75,7 @@ $script:Cutoff = [DateTimeOffset]::Now.AddDays(-7)
 $script:CutoffDate = $script:Cutoff.ToString("yyyy-MM-dd")
 $script:MinimumMatchScore = [int](Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "thresholds.minimum_match_score" -DefaultValue 35)
 
-Assert-Integration -Condition ($script:JobCrawlerConfig.Profile.Id -eq "digital_analytics") -Message "Expected Digital Analytics to remain the default profile."
+Assert-Integration -Condition ($script:JobCrawlerConfig.Profile.Id -eq "integration_analytics") -Message "Expected integration test profile to load from local config."
 Assert-Integration -Condition (@(Get-ConfigStringArray (Get-ConfigPathValue -Object $script:JobCrawlerSourcesConfig -Path "queries.linkedin" -DefaultValue @())).Count -gt 0) -Message "Expected profile-level LinkedIn queries to merge into sources config."
 Assert-Integration -Condition (@(Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "positive_signals" -DefaultValue @()).Count -gt 0) -Message "Expected profile-level positive matching signals."
 
@@ -60,9 +83,8 @@ $sources = @(Get-JobCrawlerSourceDefinitions -SourcesConfig $script:JobCrawlerSo
 $sourceContract = Test-JobCrawlerSourceContract -SourceDefinitions $sources -LoadedFiles $script:LoadedSourceAdapters
 Assert-Integration -Condition $sourceContract.IsValid -Message "Expected configured source functions to be loaded dynamically."
 Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "linkedin" -and $_.CrawlFunction -eq "Get-LinkedInJobs" }).Count -eq 1) -Message "Expected LinkedIn source registry metadata."
-Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "wttj_public" -and $_.FallbackFor -eq "welcome_kit" }).Count -eq 1) -Message "Expected WTTJ fallback relationship in source registry."
 Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "wttj_public" -and $_.SkipSwitch -eq "DisableWttjPublicFallback" }).Count -eq 1) -Message "Expected WTTJ public fallback to have its own skip switch."
-Assert-Integration -Condition (@($sources | Where-Object { $_.Key -eq "welcome_kit" -and $_.SkipSwitch -eq "DisableWelcomeKit" }).Count -eq 1) -Message "Expected WelcomeKit to have its own skip switch."
+Assert-Integration -Condition ($sources.Count -eq 6) -Message "Expected the public source registry to contain only the six supported crawler sources."
 
 $customSourcesConfig = [PSCustomObject]@{
     source_order = @("custom_board")
@@ -137,12 +159,78 @@ $nextonDuplicateRows = @(
 $nextonMerge = Merge-JobsWithTracker -CurrentRows @() -ExistingRows $nextonDuplicateRows -Path "integration.xlsx" -SkipBackup
 Assert-Integration -Condition (@($nextonMerge.TrackerRows).Count -eq 1 -and [int]$nextonMerge.DuplicateCount -eq 1) -Message "Expected exact canonical URL duplicates to merge even when titles, company labels, and locations differ."
 
+$nextonAliasRows = @(
+    (New-JobResult -Title "Web Analyst" -CompanyName "Nexton Consulting" -JobLocation "Paris" -ContractType "CDI" -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url "https://fr.linkedin.com/jobs/view/nexton-web-analyst-111" -Platform "LinkedIn" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager CRO"),
+    (New-JobResult -Title "Web Analyst H/F" -CompanyName "NEXTON" -JobLocation "Paris, Ile-de-France" -ContractType "CDI" -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url "https://www.hellowork.com/fr-fr/emplois/nexton-web-analyst-222.html" -Platform "HelloWork" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager CRO")
+)
+$nextonAliasMerge = Merge-JobsWithTracker -CurrentRows $nextonAliasRows -ExistingRows @() -Path "integration.xlsx" -SkipBackup
+Assert-Integration -Condition (@($nextonAliasMerge.TrackerRows).Count -eq 1 -and [int]$nextonAliasMerge.DuplicateCount -eq 1 -and (Get-RowValue -Row $nextonAliasMerge.TrackerRows[0] -Name "company_name") -eq "nexton") -Message "Expected configured Nexton alias group to merge different-source rows and display the canonical lowercase company name."
+
 $olivierRows = @(
     (New-JobResult -Title "Web Analyst CRO" -CompanyName "L'Olivier Assurance" -JobLocation "Paris" -ContractType "CDI" -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url "https://fr.linkedin.com/jobs/view/web-analyst-cro-at-lolivier-assurance-111" -Platform "LinkedIn" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager CRO"),
     (New-JobResult -Title "Web Analyst CRO H/F" -CompanyName "Olivier" -JobLocation "Paris, Ile-de-France" -ContractType "CDI" -MatchScore $match.Score -MatchLevel $match.Level -MatchedKeywords $match.Keywords -Url "https://www.welcometothejungle.com/fr/companies/olivier/jobs/web-analyst-cro_paris" -Platform "Welcome to the Jungle" -PublishedAt ([DateTimeOffset]::Now) -SourceText "GA4 Google Tag Manager CRO")
 )
 $olivierMerge = Merge-JobsWithTracker -CurrentRows $olivierRows -ExistingRows @() -Path "integration.xlsx" -SkipBackup
-Assert-Integration -Condition (@($olivierMerge.TrackerRows).Count -eq 1 -and (Get-RowValue -Row $olivierMerge.TrackerRows[0] -Name "platform") -match "LinkedIn" -and (Get-RowValue -Row $olivierMerge.TrackerRows[0] -Name "platform") -match "Welcome to the Jungle") -Message "Expected company alias hierarchy to merge L'Olivier Assurance and Olivier when title and location also match."
+Assert-Integration -Condition (@($olivierMerge.TrackerRows).Count -eq 1 -and (Get-RowValue -Row $olivierMerge.TrackerRows[0] -Name "platform") -match "LinkedIn" -and (Get-RowValue -Row $olivierMerge.TrackerRows[0] -Name "platform") -match "Welcome to the Jungle" -and (Get-RowValue -Row $olivierMerge.TrackerRows[0] -Name "company_name") -eq "olivier assurance") -Message "Expected company alias hierarchy to merge L'Olivier Assurance and Olivier and display olivier assurance."
+
+$feedbackAliasRows = @(
+    (New-OrderedJobRecord @{
+        status         = "ignored"
+        notes          = "ignore_reason=duplicate; company_alias=Example Retail; detail=same posting"
+        job_title      = "Web Analyst"
+        company_name   = "Example Retail France"
+        location       = "Paris"
+        contract_type  = "CDI"
+        match_score    = "70"
+        match_level    = "Medium"
+        job_url_raw    = "https://www.linkedin.com/jobs/view/feedback-alias-1"
+        platform       = "LinkedIn"
+        published_date = ([DateTimeOffset]::Now.ToString("yyyy-MM-dd"))
+    }),
+    (New-OrderedJobRecord @{
+        status         = "ignored"
+        job_title      = "Web Analyst H/F"
+        company_name   = "Example Retail"
+        location       = "Paris, Ile-de-France"
+        contract_type  = "CDI"
+        match_score    = "72"
+        match_level    = "Medium"
+        job_url_raw    = "https://www.hellowork.com/fr-fr/emplois/feedback-alias-2.html"
+        platform       = "HelloWork"
+        published_date = ([DateTimeOffset]::Now.ToString("yyyy-MM-dd"))
+    })
+)
+$feedbackAliasMerge = Merge-JobsWithTracker -CurrentRows @() -ExistingRows $feedbackAliasRows -Path "integration.xlsx" -SkipBackup
+Assert-Integration -Condition (@($feedbackAliasMerge.TrackerRows).Count -eq 1 -and [int]$feedbackAliasMerge.DuplicateCount -eq 1) -Message "Expected Apply notes company_alias feedback to merge duplicate company labels without hard-coded aliases."
+
+$seniorityDuplicateRows = @(
+    (New-OrderedJobRecord @{
+        status         = "ignored"
+        job_title      = "Digital Analytics Consultant H F Cdi"
+        company_name   = "Fifty Five"
+        location       = "Paris"
+        contract_type  = "CDI"
+        match_score    = "70"
+        match_level    = "Medium"
+        job_url_raw    = "https://www.welcometothejungle.com/fr/companies/fifty-five/jobs/digital-analytics-consultant-h-f-cdi_paris"
+        platform       = "HelloWork; Welcome to the Jungle"
+        published_date = ([DateTimeOffset]::Now.ToString("yyyy-MM-dd"))
+    }),
+    (New-OrderedJobRecord @{
+        status         = "ignored"
+        job_title      = "Senior Digital Analytics Consultant H F Paris"
+        company_name   = "Fifty Five"
+        location       = "138Ewzd"
+        contract_type  = "CDI"
+        match_score    = "72"
+        match_level    = "Medium"
+        job_url_raw    = "https://www.welcometothejungle.com/fr/companies/fifty-five/jobs/senior-digital-analytics-consultant-h-f-paris_paris_fifty_138Ewzd"
+        platform       = "Welcome to the Jungle"
+        published_date = ([DateTimeOffset]::Now.ToString("yyyy-MM-dd"))
+    })
+)
+$seniorityDuplicateMerge = Merge-JobsWithTracker -CurrentRows @() -ExistingRows $seniorityDuplicateRows -Path "integration.xlsx" -SkipBackup
+Assert-Integration -Condition (@($seniorityDuplicateMerge.TrackerRows).Count -eq 1 -and [int]$seniorityDuplicateMerge.DuplicateCount -eq 1) -Message "Expected seniority wording and WTTJ reference-token locations not to block same-company/same-role deduplication."
 
 $foreignExistingWttjRow = New-OrderedJobRecord @{
     status         = "ignored"
@@ -181,6 +269,19 @@ try {
     $cleanupRows = @(Invoke-JobCrawlerOutputCleanup -ProjectRoot $managedRoot -CacheDirectory $managedCache -Cache -OlderThanDays 14)
     Assert-Integration -Condition (($cleanupRows | Measure-Object RemovedFiles -Sum).Sum -eq 1 -and -not (Test-Path -LiteralPath $managedOld) -and (Test-Path -LiteralPath $managedNew)) -Message "Expected managed output cleanup to remove old cache files inside the project root only."
 
+    $managedTrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $managedRoot -Config $script:JobCrawlerConfig
+    $managedOutput = Split-Path -Parent $managedTrackerPath
+    $managedBackups = Join-Path $managedOutput "backups"
+    $managedLogs = Join-Path $managedOutput "launcher_logs"
+    New-Item -ItemType Directory -Path $managedBackups -Force | Out-Null
+    New-Item -ItemType Directory -Path $managedLogs -Force | Out-Null
+    $managedBackup = Join-Path $managedBackups "jobs_tracker_backup.xlsx"
+    $managedLog = Join-Path $managedLogs "launcher_run_test.log"
+    Set-Content -LiteralPath $managedBackup -Value "backup" -Encoding UTF8
+    Set-Content -LiteralPath $managedLog -Value "log" -Encoding UTF8
+    $allCleanupRows = @(Invoke-JobCrawlerOutputCleanup -ProjectRoot $managedRoot -CacheDirectory $managedCache -All -OlderThanDays 0)
+    Assert-Integration -Condition (($allCleanupRows | Measure-Object RemovedFiles -Sum).Sum -ge 3 -and -not (Test-Path -LiteralPath $managedBackup) -and -not (Test-Path -LiteralPath $managedLog) -and -not (Test-Path -LiteralPath $managedNew)) -Message "Expected all-output cleanup to remove cache, backups, and launcher logs immediately."
+
     $historyPath = Join-Path $tempRoot "run_history.jsonl"
     for ($i = 0; $i -lt 3; $i++) {
         Write-RunHistoryEntry -Path $historyPath -MaxEntries 2 -Summary @{
@@ -200,5 +301,7 @@ try {
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+Remove-Item -LiteralPath $script:IntegrationTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Integration tests passed."

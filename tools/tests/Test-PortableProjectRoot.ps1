@@ -26,6 +26,9 @@ try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $projectRoot "app") -Destination (Join-Path $tempRoot "app") -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot "config") -Destination (Join-Path $tempRoot "config") -Recurse -Force
+    Remove-Item -LiteralPath (Join-Path $tempRoot "config\local") -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath (Join-Path $tempRoot "config") -Filter "local*.json" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
 
     $powershell = Get-TestPowerShellExecutable
     $crawlerPath = Join-Path $tempRoot "app\cli\Find-AnalyticsJobs.ps1"

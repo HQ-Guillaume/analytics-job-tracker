@@ -27,7 +27,7 @@ $script:JobCrawlerWorkbookConfig = $script:JobCrawlerConfig.Workbook
 $script:JobCrawlerPreferences = Get-JobCrawlerPreferences
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Resolve-JobCrawlerPath -BasePath $projectRoot -Path ([string](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
+    $TrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $projectRoot -Config $script:JobCrawlerConfig
 }
 if (-not (Test-Path -LiteralPath $TrackerPath)) {
     throw "Tracker workbook not found: $TrackerPath"

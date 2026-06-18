@@ -82,8 +82,7 @@ foreach ($relativePath in @(
     "config\runtime.json",
     "config\crawl_modes.json",
     "config\matching_rules.json",
-    "config\workbook.json",
-    "config\profiles\digital_analytics.json"
+    "config\workbook.json"
 )) {
     $path = Join-Path $projectRoot $relativePath
     Add-CompatibilityRow -Area ("file:{0}" -f $relativePath) -Status $(if (Test-Path -LiteralPath $path) { "ok" } else { "missing" }) -Detail $relativePath -IsBlocking:(-not (Test-Path -LiteralPath $path))
@@ -92,7 +91,10 @@ foreach ($relativePath in @(
 try {
     $config = Get-JobCrawlerConfig -ConfigDirectory (Join-Path $projectRoot "config")
     $validation = Test-JobCrawlerConfig -Config $config
-    Add-CompatibilityRow -Area "Config" -Status $(if ($validation.IsValid) { "ok" } else { "blocking" }) -Detail $(if ($validation.IsValid) { "Active profile: {0}" -f $config.Profile.Id } else { ($validation.Issues -join "; ") }) -IsBlocking:(-not $validation.IsValid)
+    $configDetail = $(if ($validation.IsValid) {
+        if (Test-JobCrawlerProfileConfigured -Config $config) { "Active profile: {0}" -f $config.Profile.Id } else { "Base config is valid; create a profile in the GUI before crawling." }
+    } else { ($validation.Issues -join "; ") })
+    Add-CompatibilityRow -Area "Config" -Status $(if ($validation.IsValid) { "ok" } else { "blocking" }) -Detail $configDetail -IsBlocking:(-not $validation.IsValid)
 }
 catch {
     Add-CompatibilityRow -Area "Config" -Status "blocking" -Detail $_.Exception.Message -IsBlocking
@@ -109,7 +111,7 @@ if ($isWindows) {
     }
 
     $openXmlWriterAvailable = Test-Path -LiteralPath (Join-Path $projectRoot "app\core\JobTracker.OpenXml.ps1")
-    Add-CompatibilityRow -Area "No-Excel XLSX writer" -Status $(if ($openXmlWriterAvailable) { "ok" } else { "missing" }) -Detail $(if ($openXmlWriterAvailable) { "Built-in OpenXML writer can create jobs_tracker.xlsx without desktop Excel." } else { "OpenXML writer module is missing." }) -IsBlocking:(-not $openXmlWriterAvailable)
+    Add-CompatibilityRow -Area "No-Excel XLSX writer" -Status $(if ($openXmlWriterAvailable) { "ok" } else { "missing" }) -Detail $(if ($openXmlWriterAvailable) { "Built-in OpenXML writer can create the profile tracker workbook without desktop Excel." } else { "OpenXML writer module is missing." }) -IsBlocking:(-not $openXmlWriterAvailable)
     $excelAvailable = Test-ComObjectAvailable -ProgId "Excel.Application"
     Add-CompatibilityRow -Area "Excel workbook" -Status $(if ($excelAvailable) { "optional" } else { "optional missing" }) -Detail $(if ($excelAvailable) { "Excel COM automation is available for the richest workbook formatting." } else { "Desktop Excel is not installed; auto mode will use the built-in OpenXML writer." })
     Add-CompatibilityRow -Area "Windows launchers" -Status "ok" -Detail ".cmd and .vbs launchers are supported on Windows."
@@ -117,7 +119,7 @@ if ($isWindows) {
 else {
     $openXmlWriterAvailable = Test-Path -LiteralPath (Join-Path $projectRoot "app/core/JobTracker.OpenXml.ps1")
     Add-CompatibilityRow -Area "WinForms GUI" -Status "unsupported" -Detail "The current GUI uses Windows Forms and is Windows-only."
-    Add-CompatibilityRow -Area "No-Excel XLSX writer" -Status $(if ($openXmlWriterAvailable) { "ok" } else { "missing" }) -Detail $(if ($openXmlWriterAvailable) { "Built-in OpenXML writer can create jobs_tracker.xlsx without desktop Excel." } else { "OpenXML writer module is missing." }) -IsBlocking:(-not $openXmlWriterAvailable)
+    Add-CompatibilityRow -Area "No-Excel XLSX writer" -Status $(if ($openXmlWriterAvailable) { "ok" } else { "missing" }) -Detail $(if ($openXmlWriterAvailable) { "Built-in OpenXML writer can create the profile tracker workbook without desktop Excel." } else { "OpenXML writer module is missing." }) -IsBlocking:(-not $openXmlWriterAvailable)
     Add-CompatibilityRow -Area "Excel workbook" -Status "unsupported optional" -Detail "Excel COM automation is Windows-only; use OpenXML output on this platform."
     Add-CompatibilityRow -Area "Windows launchers" -Status "unsupported" -Detail ".cmd and .vbs launchers do not run on macOS/Linux."
     Add-CompatibilityRow -Area "CLI core" -Status "partial" -Detail "Config parsing, crawling, and OpenXML XLSX output can run in PowerShell 7; the current GUI remains Windows-only."

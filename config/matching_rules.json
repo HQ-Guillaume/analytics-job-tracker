@@ -9,7 +9,23 @@
                           "strong_title_similarity_threshold":  0.72,
                           "probable_role_similarity_threshold":  0.35,
                           "company_aliases":  [
-
+                                                  {
+                                                      "canonical":  "nexton",
+                                                      "aliases":  [
+                                                                      "nexton consulting",
+                                                                      "nexton"
+                                                                  ]
+                                                  },
+                                                  {
+                                                      "canonical":  "olivier assurance",
+                                                      "aliases":  [
+                                                                      "l'olivier assurance",
+                                                                      "lolivier assurance",
+                                                                      "l olivier assurance",
+                                                                      "olivier",
+                                                                      "olivier assurance"
+                                                                  ]
+                                                  }
                                               ]
                       }
 }

@@ -25,6 +25,16 @@ $tempConfig = Join-Path $tempRoot "config"
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 try {
     Copy-Item -LiteralPath (Join-Path $projectRoot "config") -Destination $tempConfig -Recurse -Force
+    Remove-Item -LiteralPath (Join-Path $tempConfig "local") -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $tempConfig -Filter "local*.json" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
+    Get-ChildItem -LiteralPath (Join-Path $tempConfig "profiles") -Filter "*.json" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
+
+    $publicConfig = Get-JobCrawlerConfig -ConfigDirectory $tempConfig
+    $publicValidation = Test-JobCrawlerConfig -Config $publicConfig
+    Assert-ProfileBuilder -Condition $publicValidation.IsValid -Message "Expected clean public config without profiles to remain structurally valid."
+    Assert-ProfileBuilder -Condition (-not (Test-JobCrawlerProfileConfigured -Config $publicConfig)) -Message "Expected clean public config to require profile creation before crawling."
 
     $compactProfile = New-JobCrawlerProfileFromBuilder `
         -Label "CRM Analyst" `
@@ -50,10 +60,32 @@ try {
 
     $loadedConfig = Get-JobCrawlerConfig -ConfigDirectory $tempConfig
     Assert-ProfileBuilder -Condition ($loadedConfig.Profile.Id -eq "crm_analyst") -Message "Expected local default profile to load."
+    $loadedTrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $tempRoot -Config $loadedConfig
+    Assert-ProfileBuilder -Condition ($loadedTrackerPath -like "*output*profiles*crm_analyst*jobs_tracker.xlsx") -Message "Expected default tracker path to be profile-specific."
     Assert-ProfileBuilder -Condition (@(Get-ConfigStringArray (Get-ConfigPathValue -Object $loadedConfig.Sources -Path "queries.linkedin" -DefaultValue @())).Count -gt 0) -Message "Expected compact profile to expand LinkedIn queries."
     Assert-ProfileBuilder -Condition (-not [string]::IsNullOrWhiteSpace([string](Get-ConfigPathValue -Object $loadedConfig.MatchingRules -Path "contexts.profile_skill_context" -DefaultValue ""))) -Message "Expected compact profile to expand generic profile skill context."
     Assert-ProfileBuilder -Condition (@(Get-ConfigPathValue -Object $loadedConfig.MatchingRules -Path "positive_signals" -DefaultValue @()).Count -gt 0) -Message "Expected compact profile to expand positive signals."
     Assert-ProfileBuilder -Condition (@(Get-ConfigPathValue -Object $loadedConfig.Preferences -Path "target_location_patterns" -DefaultValue @()).Count -gt 0) -Message "Expected compact profile to expand location preferences."
+
+    $singleQueryProfile = New-JobCrawlerProfileFromBuilder `
+        -Label "One Query Analyst" `
+        -TargetTitles @("One Query Analyst") `
+        -SearchQueries @("one query analyst") `
+        -TargetLocations @("France") `
+        -Compact
+    $singleQueryPath = Save-JobCrawlerLocalProfile -ConfigDirectory $tempConfig -Profile $singleQueryProfile
+    Assert-ProfileBuilder -Condition (Test-Path -LiteralPath $singleQueryPath) -Message "Expected one-query local profile file to be saved."
+    $singleQueryConfig = Get-JobCrawlerConfig -ConfigDirectory $tempConfig -ProfileId "one_query_analyst"
+    $singleQueryValidation = Test-JobCrawlerConfig -Config $singleQueryConfig
+    Assert-ProfileBuilder -Condition $singleQueryValidation.IsValid -Message "Expected one-query profile validation not to fail on scalar Count behavior."
+
+    $removedProfilePath = Remove-JobCrawlerLocalProfile -ConfigDirectory $tempConfig -ProfileId "one_query_analyst"
+    Assert-ProfileBuilder -Condition (-not (Test-Path -LiteralPath $removedProfilePath)) -Message "Expected local profile deletion to remove the profile file."
+    [void](Set-JobCrawlerDefaultProfile -ConfigDirectory $tempConfig -ProfileId "crm_analyst")
+    $removedDefaultPath = Remove-JobCrawlerLocalProfile -ConfigDirectory $tempConfig -ProfileId "crm_analyst"
+    Assert-ProfileBuilder -Condition (-not (Test-Path -LiteralPath $removedDefaultPath)) -Message "Expected deleting the default profile to remove the profile file."
+    $afterDeleteConfig = Get-JobCrawlerConfig -ConfigDirectory $tempConfig
+    Assert-ProfileBuilder -Condition (-not (Test-JobCrawlerProfileConfigured -Config $afterDeleteConfig)) -Message "Expected deleting the last local profile to leave the project unconfigured instead of pointing at a stale default."
 }
 finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

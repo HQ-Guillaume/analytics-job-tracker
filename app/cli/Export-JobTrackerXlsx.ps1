@@ -30,9 +30,15 @@ $validation = Test-JobCrawlerConfig -Config $JobCrawlerConfig
 if (-not $validation.IsValid) {
     throw ("Invalid crawler config:`n- {0}" -f (($validation.Issues) -join "`n- "))
 }
+if (-not (Test-JobCrawlerProfileConfigured -Config $JobCrawlerConfig)) {
+    throw "No job profile is configured. Open the GUI, click New in the Profile section, create a profile, then format the tracker."
+}
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Resolve-JobCrawlerPath -BasePath $ProjectRoot -Path ([string](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx"))
+    $TrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $ProjectRoot -Config $JobCrawlerConfig
+}
+else {
+    $TrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $ProjectRoot -Config $JobCrawlerConfig -TrackerPath $TrackerPath
 }
 if (-not (Test-Path -LiteralPath $TrackerPath)) {
     throw "Tracker workbook not found: $TrackerPath"

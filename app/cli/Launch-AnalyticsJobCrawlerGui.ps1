@@ -31,14 +31,56 @@ function Set-LauncherCrawlerConfig {
 
 Set-LauncherCrawlerConfig
 
+function Test-LauncherProfileConfigured {
+    return Test-JobCrawlerProfileConfigured -Config $script:CrawlerConfig
+}
+
 function Get-LauncherDefaultTrackerPath {
-    $relativePath = [string](Get-ConfigPathValue -Object $script:CrawlerConfig.Runtime -Path "defaults.tracker_path" -DefaultValue "output\jobs_tracker.xlsx")
-    return Resolve-JobCrawlerPath -BasePath $script:ProjectRoot -Path $relativePath
+    return Get-JobCrawlerTrackerPath -ProjectRoot $script:ProjectRoot -Config $script:CrawlerConfig
+}
+
+function Get-LauncherDisplayPath {
+    param([AllowNull()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    $root = [string]$script:ProjectRoot
+    if (-not [string]::IsNullOrWhiteSpace($root) -and $Path.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $relative = [regex]::Replace($Path.Substring($root.Length), "^[\\/]+", "")
+        if (-not [string]::IsNullOrWhiteSpace($relative)) {
+            return $relative
+        }
+    }
+
+    return $Path
 }
 
 function Get-LauncherOutputDirectory {
     $trackerPath = Get-LauncherDefaultTrackerPath
     return Split-Path -Parent $trackerPath
+}
+
+function Set-LauncherOutputPaths {
+    $outputDirectory = Get-LauncherOutputDirectory
+    $script:LauncherErrorLogPath = Join-Path $outputDirectory "launcher_error.log"
+    $script:LauncherLastRunLogPath = Join-Path $outputDirectory "launcher_last_run.log"
+    $script:LauncherRunLogDirectory = Join-Path $outputDirectory "launcher_logs"
+    $script:LauncherRunLockPath = Join-Path $outputDirectory "crawler_run.lock.json"
+
+    $isRunning = $false
+    if ($null -ne $script:RunningProcess) {
+        try {
+            $isRunning = -not $script:RunningProcess.HasExited
+        }
+        catch {
+            $isRunning = $false
+        }
+    }
+    if (-not $isRunning) {
+        $script:LauncherRunLogPath = $script:LauncherLastRunLogPath
+    }
 }
 
 function ConvertTo-CommandLineArgument {
@@ -107,11 +149,11 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
-$script:LauncherErrorLogPath = Join-Path (Get-LauncherOutputDirectory) "launcher_error.log"
-$script:LauncherLastRunLogPath = Join-Path (Get-LauncherOutputDirectory) "launcher_last_run.log"
-$script:LauncherRunLogDirectory = Join-Path (Get-LauncherOutputDirectory) "launcher_logs"
-$script:LauncherRunLogPath = $script:LauncherLastRunLogPath
-$script:LauncherRunLockPath = Join-Path (Get-LauncherOutputDirectory) "crawler_run.lock.json"
+$script:LauncherErrorLogPath = ""
+$script:LauncherLastRunLogPath = ""
+$script:LauncherRunLogDirectory = ""
+$script:LauncherRunLogPath = ""
+$script:LauncherRunLockPath = ""
 $script:LauncherRunId = ""
 $script:MainForm = $null
 $script:LogTextBox = $null
@@ -127,6 +169,7 @@ $script:RunLogLineCount = 0
 $script:RunScriptPath = $null
 $script:RunLockHeld = $false
 $script:LastCrawlerExitCode = $null
+Set-LauncherOutputPaths
 $script:SettingsGroup = $null
 $script:SourceListView = $null
 $script:SourceCheckboxes = @()
@@ -822,7 +865,7 @@ function Get-LauncherWorkbookWriterPlan {
         return [PSCustomObject]@{ Level = "ok"; Status = "Excel XLSX"; Detail = "Auto mode will use desktop Excel COM for the richest formatting." }
     }
     if ($openXmlAvailable) {
-        return [PSCustomObject]@{ Level = "ok"; Status = "No-Excel XLSX"; Detail = "Auto mode will create jobs_tracker.xlsx with the built-in OpenXML writer." }
+        return [PSCustomObject]@{ Level = "ok"; Status = "No-Excel XLSX"; Detail = "Auto mode will create the profile tracker workbook with the built-in OpenXML writer." }
     }
     if ($htmlFallbackEnabled) {
         return [PSCustomObject]@{ Level = "warning"; Status = "HTML fallback"; Detail = "No XLSX writer is available; only a readable HTML fallback can be written if export fails." }
@@ -864,17 +907,18 @@ function Get-EnabledSourceCredentialIssues {
 
 function Test-TrackerWorkbookWritable {
     $trackerPath = Get-LauncherDefaultTrackerPath
+    $displayPath = Get-LauncherDisplayPath -Path $trackerPath
     if (-not (Test-Path -LiteralPath $trackerPath)) {
-        return [PSCustomObject]@{ Level = "warning"; Status = "Not found"; Detail = "Will be created on first run." }
+        return [PSCustomObject]@{ Level = "warning"; Status = "Not found"; Detail = ("Will be created: {0}" -f $displayPath) }
     }
 
     try {
         $stream = [System.IO.File]::Open($trackerPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
         $stream.Close()
-        return [PSCustomObject]@{ Level = "ok"; Status = "Ready"; Detail = "Workbook is not locked." }
+        return [PSCustomObject]@{ Level = "ok"; Status = "Ready"; Detail = ("Workbook is not locked: {0}" -f $displayPath) }
     }
     catch {
-        return [PSCustomObject]@{ Level = "error"; Status = "Locked"; Detail = "Close jobs_tracker.xlsx before running." }
+        return [PSCustomObject]@{ Level = "error"; Status = "Locked"; Detail = ("Close this workbook before running: {0}" -f $displayPath) }
     }
 }
 
@@ -898,7 +942,10 @@ function Refresh-ReadinessChecklist {
         $script:ReadinessList.Items.Clear()
 
         $validation = Test-JobCrawlerConfig -Config $script:CrawlerConfig
-        if ($validation.IsValid) {
+        if (-not (Test-LauncherProfileConfigured)) {
+            Add-ReadinessItem -Area "Profile" -Status "Create profile" -Detail "Click New in the Profile section before crawling." -Level "error"
+        }
+        elseif ($validation.IsValid) {
             Add-ReadinessItem -Area "Config" -Status "Ready" -Detail ("Profile: {0}" -f $script:CrawlerConfig.Profile.Label)
         }
         else {
@@ -1071,6 +1118,11 @@ function Start-CrawlerFromGui {
 
     Refresh-ReadinessChecklist
 
+    if (-not (Test-LauncherProfileConfigured)) {
+        [System.Windows.Forms.MessageBox]::Show("Create a job profile first. Click New in the Profile section, save it, then run the crawler.", "Profile required") | Out-Null
+        return
+    }
+
     $validation = Test-JobCrawlerConfig -Config $script:CrawlerConfig
     if (-not $validation.IsValid) {
         [System.Windows.Forms.MessageBox]::Show((($validation.Issues) -join [Environment]::NewLine), "Config needs review") | Out-Null
@@ -1239,6 +1291,11 @@ function Test-ConfigFromGui {
 }
 
 function Initialize-TrackerFromGui {
+    if (-not (Test-LauncherProfileConfigured)) {
+        [System.Windows.Forms.MessageBox]::Show("Create a job profile first. Click New in the Profile section, save it, then create the tracker.", "Profile required") | Out-Null
+        return
+    }
+
     $trackerPath = Get-LauncherDefaultTrackerPath
     if (Test-Path -LiteralPath $trackerPath) {
         [System.Windows.Forms.MessageBox]::Show("Tracker already exists: $trackerPath", "Create tracker") | Out-Null
@@ -1313,22 +1370,28 @@ function Get-LauncherOutputStatsText {
     $cacheDirectory = Resolve-JobCrawlerPath -BasePath $script:ProjectRoot -Path ([string](Get-ConfigPathValue -Object $script:CrawlerConfig.Runtime -Path "defaults.cache_directory" -DefaultValue "output\cache"))
     $cacheStats = Get-JobCrawlerDirectoryStats -Label "cache" -Path $cacheDirectory
     $logStats = Get-JobCrawlerDirectoryStats -Label "logs" -Path (Join-Path $outputDirectory "launcher_logs")
-    return ("{0} | cache {1:N2} MB/{2} files | logs {3:N2} MB/{4} files" -f $outputDirectory, [double]$cacheStats.Megabytes, [int]$cacheStats.FileCount, [double]$logStats.Megabytes, [int]$logStats.FileCount)
+    $backupStats = Get-JobCrawlerDirectoryStats -Label "backups" -Path (Join-Path $outputDirectory "backups")
+    return ("{0} | cache {1:N2} MB/{2} files | logs {3:N2} MB/{4} files | backups {5:N2} MB/{6} files" -f $outputDirectory, [double]$cacheStats.Megabytes, [int]$cacheStats.FileCount, [double]$logStats.Megabytes, [int]$logStats.FileCount, [double]$backupStats.Megabytes, [int]$backupStats.FileCount)
 }
 
 function Clean-ManagedOutputFromGui {
     $cacheDirectory = Resolve-JobCrawlerPath -BasePath $script:ProjectRoot -Path ([string](Get-ConfigPathValue -Object $script:CrawlerConfig.Runtime -Path "defaults.cache_directory" -DefaultValue "output\cache"))
+    $script:JobCrawlerConfig = $script:CrawlerConfig
     $script:JobCrawlerRuntimeConfig = $script:CrawlerConfig.Runtime
     $script:CacheDirectory = $cacheDirectory
-    $ageDays = [int](Get-ConfigPathValue -Object $script:CrawlerConfig.Runtime -Path "output.cleanup_default_age_days" -DefaultValue 14)
-    Add-LogLine ("Cleaning managed cache/log files older than {0} day(s)..." -f $ageDays)
+    $ageDays = 0
+    Add-LogLine "Cleaning managed cache, logs, diagnostics, and backups now..."
 
-    $results = @(Invoke-JobCrawlerOutputCleanup -ProjectRoot $script:ProjectRoot -CacheDirectory $cacheDirectory -Cache -Logs -OlderThanDays $ageDays)
+    $results = @(Invoke-JobCrawlerOutputCleanup -ProjectRoot $script:ProjectRoot -CacheDirectory $cacheDirectory -All -OlderThanDays $ageDays)
+    $removedFiles = 0
+    $removedMb = [double]0
     foreach ($result in $results) {
         Add-LogLine ("Cleanup {0}: removed {1} file(s), {2:N2} MB." -f $result.Label, $result.RemovedFiles, [double]$result.RemovedMB)
+        $removedFiles += [int]$result.RemovedFiles
+        $removedMb += [double]$result.RemovedMB
     }
 
-    Set-LauncherStatus "Output cleanup finished."
+    Set-LauncherStatus ("Output cleanup finished: removed {0} file(s), {1:N2} MB." -f $removedFiles, $removedMb)
     Refresh-ReadinessChecklist
 }
 
@@ -1386,7 +1449,7 @@ $header.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
 $headerPanel.Controls.Add($header, 0, 0)
 
 $subHeader = New-Object System.Windows.Forms.Label
-$subHeader.Text = "Creates output\jobs_tracker.xlsx. Auto: Excel if available, otherwise built-in XLSX writer."
+$subHeader.Text = "Creates one tracker workbook per profile. Auto: Excel if available, otherwise built-in XLSX writer."
 $subHeader.ForeColor = [System.Drawing.Color]::FromArgb(77, 91, 114)
 $subHeader.Dock = [System.Windows.Forms.DockStyle]::Fill
 $subHeader.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
@@ -1483,6 +1546,13 @@ $defaultProfileButton.Size = New-Object System.Drawing.Size(96, 28)
 $defaultProfileButton.Add_Click({ Invoke-LauncherAction -Context "Set default profile" -Action { Set-SelectedProfileAsDefault } })
 [void]$profileActions.Controls.Add($defaultProfileButton)
 $script:ProfileActionButtons += $defaultProfileButton
+
+$deleteProfileButton = New-Object System.Windows.Forms.Button
+$deleteProfileButton.Text = "Delete"
+$deleteProfileButton.Size = New-Object System.Drawing.Size(74, 28)
+$deleteProfileButton.Add_Click({ Invoke-LauncherAction -Context "Delete profile" -Action { Remove-SelectedProfileFromGui } })
+[void]$profileActions.Controls.Add($deleteProfileButton)
+$script:ProfileActionButtons += $deleteProfileButton
 
 $optionsPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $optionsPanel.Dock = [System.Windows.Forms.DockStyle]::Fill

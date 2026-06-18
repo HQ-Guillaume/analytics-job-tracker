@@ -173,7 +173,7 @@ function Get-JobTrackerIgnoreReasonOptions {
         "ignore_reason=salary_issue; detail=",
         "ignore_reason=company_not_interested; detail=",
         "ignore_reason=industry_not_interested; detail=",
-        "ignore_reason=duplicate; detail=",
+        "ignore_reason=duplicate; company_alias=; detail=",
         "ignore_reason=low_quality_posting; detail=",
         "ignore_reason=other; detail="
     )
@@ -242,6 +242,36 @@ function Get-IgnoreReasonFromNotes {
     }
 
     return ""
+}
+
+function Get-StructuredNoteValue {
+    param(
+        [AllowNull()][string]$Notes,
+        [string]$Key
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Notes) -or [string]::IsNullOrWhiteSpace($Key)) {
+        return ""
+    }
+
+    $escapedKey = [regex]::Escape($Key)
+    $match = [regex]::Match([string]$Notes, "(?i)(^|[;|])\s*$escapedKey\s*=\s*(?<value>[^;|]+)")
+    if (-not $match.Success) {
+        return ""
+    }
+
+    return ([string]$match.Groups["value"].Value).Trim()
+}
+
+function Get-CompanyAliasFromNotes {
+    param([AllowNull()][string]$Notes)
+
+    $companyAlias = Get-StructuredNoteValue -Notes $Notes -Key "company_alias"
+    if (-not [string]::IsNullOrWhiteSpace($companyAlias)) {
+        return $companyAlias
+    }
+
+    return Get-StructuredNoteValue -Notes $Notes -Key "duplicate_of"
 }
 
 function Get-JobTrackerColumnSizing {

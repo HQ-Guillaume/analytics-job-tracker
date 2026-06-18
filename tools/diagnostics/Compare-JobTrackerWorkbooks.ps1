@@ -3,6 +3,8 @@ param(
     [string]$BaselinePath = "",
     [Parameter(Mandatory = $true)]
     [string]$CandidatePath,
+    [string]$ConfigDirectory = "config",
+    [string]$Profile = "",
     [switch]$IncludeApplicationRows
 )
 
@@ -11,9 +13,12 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $projectRoot "app\core\JobTracker.Common.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Config.ps1")
 
 if ([string]::IsNullOrWhiteSpace($BaselinePath)) {
-    $BaselinePath = Join-Path $projectRoot "output\jobs_tracker.xlsx"
+    $configPath = Resolve-JobCrawlerPath -BasePath $projectRoot -Path $ConfigDirectory
+    $jobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath -ProfileId $Profile
+    $BaselinePath = Get-JobCrawlerTrackerPath -ProjectRoot $projectRoot -Config $jobCrawlerConfig
 }
 
 function Test-IsApplicationStatus {

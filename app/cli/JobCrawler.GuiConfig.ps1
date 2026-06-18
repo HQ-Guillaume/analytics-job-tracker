@@ -122,6 +122,12 @@ function Update-GuiSourceListItem {
     elseif ($isChecked -and -not [string]::IsNullOrWhiteSpace([string]$definition.FallbackFor)) {
         $state = "Fallback enabled"
     }
+    elseif (-not $isChecked -and [bool]$definition.RequiresCredential -and -not $missingCredentials) {
+        $state = "Available, disabled"
+    }
+    elseif (-not $isChecked -and [bool]$definition.RequiresCredential -and $missingCredentials) {
+        $state = "Disabled, missing credentials"
+    }
 
     $Item.SubItems[1].Text = $kind
     $Item.SubItems[2].Text = $credentialSummary
@@ -210,6 +216,7 @@ function Select-ProfileFromGui {
     $profileId = Get-SelectedProfileId
     try {
         Set-LauncherCrawlerConfig -ProfileId $profileId
+        Set-LauncherOutputPaths
         Refresh-ModeComboBox
         Refresh-SourceCheckboxes
         Refresh-CredentialList
@@ -224,6 +231,11 @@ function Select-ProfileFromGui {
 
 function Set-SelectedProfileAsDefault {
     $profileId = Get-SelectedProfileId
+    if ([string]::IsNullOrWhiteSpace($profileId)) {
+        [System.Windows.Forms.MessageBox]::Show("Create or select a profile first.", "Profile") | Out-Null
+        return
+    }
+
     try {
         $path = Set-JobCrawlerDefaultProfile -ConfigDirectory $script:ConfigDirectory -ProfileId $profileId
         Add-LogLine ("Default profile saved: {0}" -f $profileId)
@@ -232,6 +244,65 @@ function Set-SelectedProfileAsDefault {
     }
     catch {
         [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Profile") | Out-Null
+    }
+}
+
+function Remove-SelectedProfileFromGui {
+    if ($null -eq $script:ProfileComboBox -or $null -eq $script:ProfileComboBox.SelectedItem) {
+        [System.Windows.Forms.MessageBox]::Show("Select a profile first.", "Profile") | Out-Null
+        return
+    }
+
+    $selectedProfile = $script:ProfileComboBox.SelectedItem
+    $profileId = [string]$selectedProfile.Id
+    $profileLabel = [string]$selectedProfile.Label
+    if ([string]::IsNullOrWhiteSpace($profileId)) {
+        return
+    }
+    if (-not [bool]$selectedProfile.IsLocal) {
+        [System.Windows.Forms.MessageBox]::Show("Only local profiles can be deleted. Public profiles are part of the installed project.", "Profile") | Out-Null
+        return
+    }
+
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        ("Delete profile '{0}'?`n`nThe profile file will be removed, but its tracker workbook will be kept." -f $profileLabel),
+        "Delete profile",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    )
+    if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) {
+        return
+    }
+
+    try {
+        $deletedPath = Remove-JobCrawlerLocalProfile -ConfigDirectory $script:ConfigDirectory -ProfileId $profileId
+        $remainingProfiles = @(Get-JobCrawlerProfileSummaries -ConfigDirectory $script:ConfigDirectory | Sort-Object Label, Id)
+        $nextProfileId = ""
+        if ($remainingProfiles.Count -gt 0) {
+            $nextProfileId = [string]$remainingProfiles[0].Id
+            [void](Set-JobCrawlerDefaultProfile -ConfigDirectory $script:ConfigDirectory -ProfileId $nextProfileId)
+        }
+        else {
+            [void](Clear-JobCrawlerDefaultProfile -ConfigDirectory $script:ConfigDirectory)
+        }
+
+        Set-LauncherCrawlerConfig -ProfileId $nextProfileId
+        Set-LauncherOutputPaths
+        Refresh-ProfileComboBox -SelectedProfileId $nextProfileId
+        Refresh-ModeComboBox
+        Refresh-SourceCheckboxes
+        Refresh-CredentialList
+        Add-LogLine ("Profile deleted: {0}" -f $deletedPath)
+        Set-LauncherStatus $(if ([string]::IsNullOrWhiteSpace($nextProfileId)) { "Profile deleted. Create a new profile before crawling." } else { "Profile deleted." })
+        Refresh-ReadinessChecklist
+    }
+    catch {
+        if (Get-Command Show-LauncherException -ErrorAction SilentlyContinue) {
+            Show-LauncherException -Context "Delete profile" -Exception $_.Exception
+        }
+        else {
+            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Profile") | Out-Null
+        }
     }
 }
 
@@ -547,6 +618,7 @@ function Show-ProfileEditorDialog {
                 [void](Set-JobCrawlerDefaultProfile -ConfigDirectory $script:ConfigDirectory -ProfileId $profileId)
             }
             Set-LauncherCrawlerConfig -ProfileId $profileId
+            Set-LauncherOutputPaths
             Refresh-ProfileComboBox -SelectedProfileId $profileId
             Refresh-ModeComboBox
             Refresh-SourceCheckboxes
@@ -556,7 +628,12 @@ function Show-ProfileEditorDialog {
             $dialog.Close()
         }
         catch {
-            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Profile") | Out-Null
+            if (Get-Command Show-LauncherException -ErrorAction SilentlyContinue) {
+                Show-LauncherException -Context "Save profile" -Exception $_.Exception
+            }
+            else {
+                [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Profile") | Out-Null
+            }
         }
     })
 

@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$TrackerPath = "",
+    [string]$ConfigDirectory = "config",
+    [string]$Profile = "",
     [switch]$WarnOnly
 )
 
@@ -9,9 +11,12 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $projectRoot "app\core\JobTracker.Common.ps1")
+. (Join-Path $projectRoot "app\core\JobTracker.Config.ps1")
 
 if ([string]::IsNullOrWhiteSpace($TrackerPath)) {
-    $TrackerPath = Join-Path $projectRoot "output\jobs_tracker.xlsx"
+    $configPath = Resolve-JobCrawlerPath -BasePath $projectRoot -Path $ConfigDirectory
+    $jobCrawlerConfig = Get-JobCrawlerConfig -ConfigDirectory $configPath -ProfileId $Profile
+    $TrackerPath = Get-JobCrawlerTrackerPath -ProjectRoot $projectRoot -Config $jobCrawlerConfig
 }
 
 $errors = New-Object System.Collections.Generic.List[string]
@@ -56,7 +61,7 @@ try {
         Write-Host ("Excel COM health check unavailable: {0}" -f $_.Exception.Message)
         Write-Host "Falling back to no-Excel OpenXML workbook health check."
         $openXmlHealthPath = Join-Path $projectRoot "tools\diagnostics\Test-WorkbookHealthOpenXml.ps1"
-        & $openXmlHealthPath -TrackerPath $TrackerPath -WarnOnly:$WarnOnly
+        & $openXmlHealthPath -TrackerPath $TrackerPath -ConfigDirectory $ConfigDirectory -Profile $Profile -WarnOnly:$WarnOnly
         return
     }
     $excel.Visible = $false

@@ -798,12 +798,19 @@ function New-JobResult {
     if ($fitKeywordNotes.Count -gt 0) {
         $adjustedKeywords = (Join-CleanTextParts @($adjustedKeywords, (($fitKeywordNotes.ToArray()) -join "; "))) -replace ", ", "; "
     }
+    $displayCompanyName = $CompanyName.Trim()
+    if (Get-Command Get-DedupeCompanyDisplayName -ErrorAction SilentlyContinue) {
+        $displayCompanyName = Get-DedupeCompanyDisplayName $displayCompanyName
+    }
+    else {
+        $displayCompanyName = $displayCompanyName.ToLowerInvariant()
+    }
 
     $SeenResultKeys[$key] = $true
     [PSCustomObject]@{
         job_id         = $jobId
         job_title      = $Title.Trim()
-        company_name   = $CompanyName.Trim()
+        company_name   = $displayCompanyName
         employer_type  = [string]$fit.EmployerType
         location       = $JobLocation.Trim()
         contract_type  = $effectiveContractType.Trim()
@@ -1077,10 +1084,7 @@ function Get-FeedbackLearningAdjustment {
         }
     } | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Key) -and -not [string]::IsNullOrWhiteSpace($_.Pattern) })
     $negativeRuleMap = [ordered]@{}
-    $fallbackNegativeRules = @()
-    if ($configuredRules.Count -eq 0) {
-        $fallbackNegativeRules = @(Get-DefaultFeedbackNegativeRules)
-    }
+    $fallbackNegativeRules = @(Get-DefaultFeedbackNegativeRules)
     foreach ($rule in @($configuredRules + $fallbackNegativeRules)) {
         $ruleKey = "{0}|{1}" -f ([string]$rule.Key), ([string]$rule.Pattern)
         if (-not $negativeRuleMap.Contains($ruleKey)) {
@@ -1283,6 +1287,11 @@ function Get-FeedbackAdjustment {
         $existingCompany = ConvertTo-IdentityText -Text (Get-RowValue -Row $existing -Name "company_name")
         $existingKeywords = ConvertTo-MatchText (Get-RowValue -Row $existing -Name "matched_keywords")
         $sameCompany = -not [string]::IsNullOrWhiteSpace($companyText) -and $companyText -eq $existingCompany
+        if (Get-Command Get-DedupeCompanyAliasKeys -ErrorAction SilentlyContinue) {
+            $rowCompanyKeys = @(Get-DedupeCompanyAliasKeys (Get-RowValue -Row $Row -Name "company_name"))
+            $existingCompanyKeys = @(Get-DedupeCompanyAliasKeys (Get-RowValue -Row $existing -Name "company_name"))
+            $sameCompany = @($rowCompanyKeys | Where-Object { $existingCompanyKeys -contains $_ }).Count -gt 0
+        }
         $sameTitle = -not [string]::IsNullOrWhiteSpace($titleText) -and $titleText -eq $existingTitle
         $keywordOverlap = -not [string]::IsNullOrWhiteSpace($keywordText) -and -not [string]::IsNullOrWhiteSpace($existingKeywords) -and ($keywordText -match "google|gtm|ga4|piano|contentsquare|tag\s+commander|commanders?\s+act|tealium|server-side|server\s+side|rgpd|gdpr|tracking|tagging|cro") -and ($existingKeywords -match "google|gtm|ga4|piano|contentsquare|tag\s+commander|commanders?\s+act|tealium|server-side|server\s+side|rgpd|gdpr|tracking|tagging|cro")
 

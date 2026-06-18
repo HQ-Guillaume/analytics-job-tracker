@@ -25,4 +25,9 @@ if (-not $result.IsValid) {
 
 Write-Host "Config validation passed."
 Write-Host ("Config directory: {0}" -f $config.Root)
-Write-Host ("Profile: {0} ({1})" -f $config.Profile.Label, $config.Profile.Id)
+if (Test-JobCrawlerProfileConfigured -Config $config) {
+    Write-Host ("Profile: {0} ({1})" -f $config.Profile.Label, $config.Profile.Id)
+}
+else {
+    Write-Host "Profile: none configured yet"
+}
