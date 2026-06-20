@@ -1407,13 +1407,15 @@ function Merge-JobsWithTracker {
         }
     }
 
-    $trackerRows = @($trackerByKey.Values) |
-        Sort-Object -Property `
-            @{ Expression = { if ((Get-RowValue -Row $_ -Name "seen_in_current_crawl") -eq "yes") { 1 } else { 0 } }; Descending = $true },
-            @{ Expression = { try { [int](Get-RowValue -Row $_ -Name "match_score") } catch { 0 } }; Descending = $true },
-            @{ Expression = "published_date"; Descending = $true },
-            platform,
-            job_title
+    $trackerRows = @(
+        @($trackerByKey.Values | Where-Object { $null -ne $_ }) |
+            Sort-Object -Property `
+                @{ Expression = { if ((Get-RowValue -Row $_ -Name "seen_in_current_crawl") -eq "yes") { 1 } else { 0 } }; Descending = $true },
+                @{ Expression = { try { [int](Get-RowValue -Row $_ -Name "match_score") } catch { 0 } }; Descending = $true },
+                @{ Expression = "published_date"; Descending = $true },
+                platform,
+                job_title
+    )
 
     Test-JobPipelineInvariants -Rows $trackerRows -Stage "merge_output" -ThrowOnIssue | Out-Null
 
