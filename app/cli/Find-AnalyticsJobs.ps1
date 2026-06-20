@@ -74,13 +74,13 @@ $JobCrawlerWorkbookConfig = $JobCrawlerConfig.Workbook
 
 if ($SelfTest) {
     $selfTestProfile = New-JobCrawlerProfileFromBuilder `
-        -Label "Digital Analytics Self Test" `
-        -Id "digital_analytics_self_test" `
+        -Label "CRM Operations Self Test" `
+        -Id "crm_operations_self_test" `
         -Description "Built-in deterministic profile used only by crawler self-tests." `
-        -TargetTitles @("Web Analyst", "Digital Analyst", "Digital Analytics Consultant", "Tracking Specialist", "Expert Tracking", "CRO Analyst", "Product Analyst") `
-        -ImportantSkills @("Google Analytics", "GA4", "Google Tag Manager", "Piano Analytics", "ContentSquare", "Adobe Analytics", "dataLayer", "CMP", "Tag Commander", "Commanders Act", "Tealium", "server-side", "RGPD", "CRO") `
-        -ExclusionKeywords @("SEO", "SEA", "digital marketing", "data engineer", "analytics engineer", "dbt", "snowflake", "data warehouse", "airflow") `
-        -SearchQueries @("web analyst", "digital analyst", "digital analytics consultant", "tracking analyst", "product analyst cro") `
+        -TargetTitles @("CRM Analyst", "Lifecycle Manager", "Marketing Automation Specialist", "Customer Journey Analyst", "Retention Specialist") `
+        -ImportantSkills @("Braze", "HubSpot", "SQL", "segmentation", "customer journey", "marketing automation", "A/B testing", "dashboarding") `
+        -ExclusionKeywords @("SEO", "SEA", "backend", "data engineer", "dbt", "snowflake", "data warehouse", "airflow") `
+        -SearchQueries @("crm analyst", "lifecycle manager", "marketing automation specialist", "customer journey analyst") `
         -TargetLocations @("France", "Paris", "Ile-de-France", "Remote France") `
         -ExcludedLocations @("London", "New York", "Casablanca") `
         -ExcludedContracts @("CDD", "Apprenticeship", "Internship", "Freelance") `

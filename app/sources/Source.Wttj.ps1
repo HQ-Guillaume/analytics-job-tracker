@@ -246,11 +246,11 @@ function Get-WttjCandidateScore {
     }
 
     $score = 0
-    if ($Url -match "(?i)(web[-_\s]*analyst|digital[-_\s]*analyst|web[-_\s]*analytics|digital[-_\s]*analytics|tracking|taggage|tagging|(^|[-_\s])ga4($|[-_\s])|(^|[-_\s])gtm($|[-_\s])|google[-_\s]*(analytics|tag[-_\s]*manager)|piano|contentsquare|content[-_\s]*square|(^|[-_\s])cro($|[-_\s]))") {
+    $slugTitle = Get-TitleFromWttjUrl $Url
+    $candidateText = "{0} {1}" -f $Url, (($slugTitle -replace "[-_]", " "))
+    $candidatePattern = [string]$script:WttjUrlCandidatePattern
+    if (-not [string]::IsNullOrWhiteSpace($candidatePattern) -and $candidateText -match $candidatePattern) {
         $score += 100
-    }
-    if ($Url -match "(?i)(data[-_\s]*analyst|analytics[-_\s]*(consultant|specialist|manager|engineer))") {
-        $score += 40
     }
     if ($Location -match "(?i)france|paris|french|remote" -and $Url -match "(?i)(/fr/|_paris|_puteaux|_levallois|_boulogne|_lille|_lyon|_fr\b)") {
         $score += 75

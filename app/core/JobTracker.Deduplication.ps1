@@ -387,7 +387,7 @@ function Test-IsStrongDedupeTitle {
         return $false
     }
 
-    return $TitleKey -match "\b(analyst|analyste|analytics|web|digital|tracking|tagging|taggage|data|traffic|performance|cro|conversion|consultant|manager|lead|product|gtm|seo|sea)\b"
+    return $TitleKey -match "\b(analyst|analyste|consultant|manager|lead|product|project|data|business|sales|marketing|engineer|developer|developpeur|designer|specialist|specialiste|expert|account|customer|success|finance|operations|ops|hr|recruiter)\b"
 }
 
 function Test-UseLocationInDedupeKey {
@@ -398,13 +398,7 @@ function Test-UseLocationInDedupeKey {
         return $false
     }
 
-    $hasCoreAnalyticsTitle =
-        (($TitleKey -match "\bweb\b") -and ($TitleKey -match "\banalyst\b|\banalytics\b")) -or
-        (($TitleKey -match "\bdigital\b") -and ($TitleKey -match "\banalyst\b|\banalytics\b")) -or
-        (($TitleKey -match "\bdata\b") -and ($TitleKey -match "\banalyst\b") -and ($TitleKey -match "\bweb\b|\bdigital\b|\banalytics\b")) -or
-        ($TitleKey -match "\b(tracking|tagging|taggage|gtm|cro)\b")
-
-    if ($hasCoreAnalyticsTitle) {
+    if (Test-IsStrongDedupeTitle $TitleKey) {
         return $false
     }
 
@@ -511,20 +505,11 @@ function Get-DedupeRoleFamily {
     if ($TitleKey -match "\b(front|frontend|javascript|react|vue|angular|developpeur|developer)\b") {
         return "frontend_engineering"
     }
-    if ($TitleKey -match "\b(tracking|tagging|taggage|gtm|tag)\b") {
-        return "tracking"
+    if ($TitleKey -match "\bproduct\b" -and $TitleKey -match "\banalyst\b") {
+        return "product_analyst"
     }
-    if ($TitleKey -match "\bcro\b|conversion") {
-        return "cro"
-    }
-    if ($TitleKey -match "\bproduct\b" -and $TitleKey -match "\b(analyst|analytics)\b") {
-        return "product_analytics"
-    }
-    if ($TitleKey -match "\b(web|digital)\b" -and $TitleKey -match "\b(analyst|analytics)\b") {
-        return "digital_analytics"
-    }
-    if ($TitleKey -match "\bdata\b" -and $TitleKey -match "\b(analyst|analytics)\b") {
-        return "data_analytics"
+    if ($TitleKey -match "\bdata\b" -and $TitleKey -match "\banalyst\b") {
+        return "data_analyst"
     }
     if ($TitleKey -match "\bseo\b|\bsea\b|traffic|performance|marketing") {
         return "marketing_performance"

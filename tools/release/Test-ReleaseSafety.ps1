@@ -72,6 +72,7 @@ $windowsUserPathPattern = "c:" + "\\users" + "\\[^\\\s]+"
 $personalNamePattern = ("\b{0}\b|\b{1}\b|\b{2}\b|{3}" -f ("gui" + "llaume"), ("hai" + "qi"), ("ge" + "ng"), ("cv_" + "hai" + "qi"))
 $personalPattern = "(?i){0}|{1}" -f $windowsUserPathPattern, $personalNamePattern
 $credentialPattern = "(?i)PAR_[A-Za-z0-9_]{30,}|(?<![A-Za-z0-9])[a-f0-9]{64}(?![A-Za-z0-9])|(?i)(client_secret|app_key|api_key|token)\\s*[:=]\\s*['""][^'""]{12,}['""]"
+$profileLeakPattern = "(?i)digital\s+analytics|digital\s+analyst|web\s+analyst|google\s+analytics|google\s+tag\s+manager|piano\s+analytics|contentsquare|tag\s+commander|commanders?\s+act|\btealium\b|broad\s+analyst|not_analytics_enough|web_analytics_tools|digital_analytics_title|digital_analytics_self_test"
 
 foreach ($relativeFile in $trackedFiles) {
     $path = Join-Path $resolvedRoot $relativeFile
@@ -85,6 +86,11 @@ foreach ($relativeFile in $trackedFiles) {
     }
     if ($content -match $credentialPattern) {
         Add-ReleaseIssue "Credential-looking value detected in tracked file: $relativeFile"
+    }
+
+    $publicRuntimeFile = ([string]$relativeFile).Replace("\", "/") -match "^(app|config)/|^README\.md$"
+    if ($publicRuntimeFile -and $content -match $profileLeakPattern) {
+        Add-ReleaseIssue "Digital-analytics profile residue detected in public runtime file: $relativeFile"
     }
 }
 

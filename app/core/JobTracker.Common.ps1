@@ -156,15 +156,9 @@ function Get-JobTrackerIgnoreReasonOptions {
     }
 
     return @(
-        "ignore_reason=not_analytics_enough; detail=",
-        "ignore_reason=too_seo_sea_marketing; detail=",
-        "ignore_reason=too_data_analyst; detail=",
-        "ignore_reason=too_data_engineering; detail=",
-        "ignore_reason=too_bi_reporting; detail=",
-        "ignore_reason=too_crm_emailing; detail=",
-        "ignore_reason=too_content_social; detail=",
-        "ignore_reason=too_managerial; detail=",
-        "ignore_reason=agency_consulting_esn; detail=",
+        "ignore_reason=not_relevant_enough; detail=",
+        "ignore_reason=too_senior; detail=",
+        "ignore_reason=too_junior; detail=",
         "ignore_reason=wrong_seniority; detail=",
         "ignore_reason=wrong_location; detail=",
         "ignore_reason=wrong_remote_policy; detail=",
@@ -222,20 +216,8 @@ function Get-IgnoreReasonFromNotes {
         }
     }
 
-    if ($normalized -match "seo|sea|paid|marketing|acquisition|growth") {
-        return "too_seo_sea_marketing"
-    }
-    if ($normalized -match "not_analytics|not_analytic|no_analytics|not_relevant") {
-        return "not_analytics_enough"
-    }
-    if ($normalized -match "data_analyst|python|sql|warehouse") {
-        return "too_data_analyst"
-    }
-    if ($normalized -match "data_engineer|analytics_engineer|dbt|snowflake|airflow|etl") {
-        return "too_data_engineering"
-    }
-    if ($normalized -match "bi|reporting|dashboard") {
-        return "too_bi_reporting"
+    if ($normalized -match "not_relevant") {
+        return "not_relevant_enough"
     }
     if ($normalized -match "agency|agence|cabinet|consulting|conseil|esn|ssii") {
         return "agency_consulting_esn"

@@ -187,18 +187,17 @@ When you set `Status` to `ignored`, fill `Apply notes` with one of the `ignore_r
 
 Useful ignored reasons:
 
-- `ignore_reason=not_analytics_enough; detail=`
-- `ignore_reason=too_seo_sea_marketing; detail=`
-- `ignore_reason=too_data_analyst; detail=`
-- `ignore_reason=too_data_engineering; detail=`
-- `ignore_reason=too_bi_reporting; detail=`
-- `ignore_reason=too_crm_emailing; detail=`
-- `ignore_reason=too_content_social; detail=`
-- `ignore_reason=agency_consulting_esn; detail=`
+- `ignore_reason=not_relevant_enough; detail=`
+- `ignore_reason=too_senior; detail=`
+- `ignore_reason=too_junior; detail=`
 - `ignore_reason=wrong_seniority; detail=`
 - `ignore_reason=wrong_location; detail=`
+- `ignore_reason=wrong_remote_policy; detail=`
+- `ignore_reason=wrong_contract; detail=`
 - `ignore_reason=company_not_interested; detail=`
+- `ignore_reason=industry_not_interested; detail=`
 - `ignore_reason=duplicate; company_alias=; detail=`
+- `ignore_reason=low_quality_posting; detail=`
 - `ignore_reason=other; detail=`
 
 ## Outputs
@@ -312,7 +311,7 @@ Main role-matching signals:
 
 - title signals: generated from the active profile's target titles
 - description/tool signals: generated from the active profile's important skills
-- global safety signals: broadly irrelevant roles such as SEO/SEA-only, data engineering, HR/recruiting, and excluded contracts are demoted or removed
+- configured safety signals: profile exclusions, HR/recruiting roles, and excluded contracts are demoted or removed
 - ranking: `High` >= 80, `Medium` >= 50, `Review` >= 35
 - jobs with only description/tool matches and no profile-related title are kept but capped at `Review`
 
@@ -329,7 +328,7 @@ The tracker also uses your history:
 - at the beginning of every manual crawl, the programme reads the active profile workbook and builds a fresh feedback profile from your `Status` and `Apply notes`; this is recalculated from that workbook each run, so it does not accumulate duplicate learning over time
 - similar jobs to `applied`, `interview`, `offer`, or `interesting` can receive a small score boost
 - similar jobs to `ignored` can receive a score penalty
-- ignored jobs with structured `ignore_reason=...` notes teach the crawler more precisely: SEO/SEA rejects affect marketing roles, data-engineering rejects affect dbt/Snowflake/pipeline roles, and `duplicate` does not reduce relevance
+- ignored jobs with structured `ignore_reason=...` notes teach the crawler more precisely: profile exclusion rejects affect similar exclusion keywords, operational reasons affect similar rows, and `duplicate` does not reduce relevance
 - agency/cabinet/ESN feedback is treated as an employer-type preference: strong profile matches are kept, but annonceur roles can be favored for review
 
 More tunable values are in:

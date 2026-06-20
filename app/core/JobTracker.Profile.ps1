@@ -592,7 +592,7 @@ function New-JobCrawlerProfileFromBuilder {
                 profile_title_context   = $titlePattern
                 marketing_only          = $exclusionPattern
                 data_warehouse          = $exclusionPattern
-                go_to_market            = "go\s*[- ]?\s*to\s*[- ]?\s*market"
+                go_to_market            = "(?!)"
             }
             positive_signals         = @($signals.ToArray())
             special_positive_signals = [ordered]@{}
