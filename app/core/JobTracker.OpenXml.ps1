@@ -138,6 +138,21 @@ function Get-OpenXmlReviewPriorityFormula {
     return 'IF(OR({0}="applied",{0}="interview",{0}="offer",{0}="rejected",{0}="withdrawn"),"Application",IF({0}="ignored","Ignored",IF(AND({1}="yes",{2}="High"),"New High",IF({1}="yes","New",IF({2}="High","High",{2})))))' -f $statusRef, $isNewRef, $matchRef
 }
 
+function Get-OpenXmlAppliedDateFormula {
+    param(
+        [int]$Row,
+        [hashtable]$ColumnIndex
+    )
+
+    if (-not $ColumnIndex.ContainsKey("status") -or -not $ColumnIndex.ContainsKey("applied_date")) {
+        return ""
+    }
+
+    $statusRef = '${0}{1}' -f (ConvertTo-ExcelColumnName ([int]$ColumnIndex["status"])), $Row
+    $appliedDateRef = '${0}{1}' -f (ConvertTo-ExcelColumnName ([int]$ColumnIndex["applied_date"])), $Row
+    return Get-AppliedDateAutoFillFormulaA1 -StatusReference $statusRef -AppliedDateReference $appliedDateRef
+}
+
 function New-OpenXmlCellXml {
     param(
         [int]$Row,
@@ -145,6 +160,7 @@ function New-OpenXmlCellXml {
         [AllowNull()][string]$Value,
         [int]$StyleId = 0,
         [AllowNull()][string]$Formula = "",
+        [switch]$FormulaNumeric,
         [switch]$Numeric,
         [switch]$Hyperlink
     )
@@ -156,7 +172,8 @@ function New-OpenXmlCellXml {
     if (-not [string]::IsNullOrWhiteSpace($Formula)) {
         $escapedFormula = ConvertTo-OpenXmlEscapedText $Formula
         $escapedValue = ConvertTo-OpenXmlEscapedText $cleanValue
-        return '<c r="{0}" t="str"{1}><f>{2}</f><v>{3}</v></c>' -f $reference, $styleAttribute, $escapedFormula, $escapedValue
+        $typeAttribute = $(if ($FormulaNumeric) { "" } else { ' t="str"' })
+        return '<c r="{0}"{1}{2}><f>{3}</f><v>{4}</v></c>' -f $reference, $typeAttribute, $styleAttribute, $escapedFormula, $escapedValue
     }
 
     if ($Numeric) {
@@ -319,6 +336,10 @@ function New-OpenXmlJobsSheet {
             if ($columnName -eq "review_priority") {
                 $formula = Get-OpenXmlReviewPriorityFormula -Row $rowNumber -ColumnIndex $columnIndex
                 [void]$sheetData.Append((New-OpenXmlCellXml -Row $rowNumber -Column $columnNumber -Value $value -StyleId 0 -Formula $formula))
+            }
+            elseif ($columnName -eq "applied_date" -and [string]::IsNullOrWhiteSpace($value)) {
+                $formula = Get-OpenXmlAppliedDateFormula -Row $rowNumber -ColumnIndex $columnIndex
+                [void]$sheetData.Append((New-OpenXmlCellXml -Row $rowNumber -Column $columnNumber -Value "" -StyleId 0 -Formula $formula -FormulaNumeric))
             }
             elseif ($columnName -eq "job_url") {
                 $url = Get-RowValue -Row $row -Name "job_url_raw"
@@ -805,7 +826,7 @@ function Export-TrackerWorkbookWithOpenXml {
     <definedName name="JobTrackerStatusOptions">$(ConvertTo-OpenXmlEscapedText $statusDefinedName)</definedName>
     <definedName name="JobTrackerApplyNoteTemplates">$(ConvertTo-OpenXmlEscapedText $notesDefinedName)</definedName>
   </definedNames>
-  <calcPr calcId="191029" fullCalcOnLoad="1"/>
+  <calcPr calcId="191029" fullCalcOnLoad="1" iterate="1" iterateCount="1" iterateDelta="0.001"/>
 </workbook>
 "@
         Write-OpenXmlUtf8File -Path (Join-Path $tempRoot "xl\workbook.xml") -Content $workbookXml

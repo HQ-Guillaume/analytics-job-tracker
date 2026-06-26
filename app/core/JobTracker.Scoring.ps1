@@ -72,6 +72,36 @@ function Get-JobCrawlerContextPattern {
     return $pattern
 }
 
+function Test-JobCrawlerNegativeRuleSuppressed {
+    param(
+        [AllowNull()]$Rule,
+        [string]$TitleText,
+        [string]$FullText,
+        [switch]$HasProfileContext
+    )
+
+    if ($null -eq $Rule) {
+        return $false
+    }
+
+    $exceptPattern = [string](Get-ConfigProperty -Object $Rule -Name "except_pattern" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($exceptPattern) -and $FullText -match $exceptPattern) {
+        return $true
+    }
+
+    $exceptTitlePattern = [string](Get-ConfigProperty -Object $Rule -Name "except_title_pattern" -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($exceptTitlePattern) -and $TitleText -match $exceptTitlePattern) {
+        return $true
+    }
+
+    $exceptWhenProfileContext = [string](Get-ConfigProperty -Object $Rule -Name "except_when_profile_context" -DefaultValue "false")
+    if ($HasProfileContext -and $exceptWhenProfileContext -match "^(true|1|yes)$") {
+        return $true
+    }
+
+    return $false
+}
+
 function Get-JobMatch {
     param(
         [string]$Title,
@@ -125,7 +155,7 @@ function Get-JobMatch {
     else {
         $rule = Get-ConfigProperty -Object $negative -Name "marketing_related" -DefaultValue $null
         $pattern = [string](Get-ConfigProperty -Object $rule -Name "pattern" -DefaultValue "")
-        if (-not [string]::IsNullOrWhiteSpace($pattern) -and $fullText -match $pattern) {
+        if (-not [string]::IsNullOrWhiteSpace($pattern) -and $fullText -match $pattern -and -not (Test-JobCrawlerNegativeRuleSuppressed -Rule $rule -TitleText $titleText -FullText $fullText -HasProfileContext:$hasProfileContext)) {
             $state.Score += [int](Get-ConfigProperty -Object $rule -Name "score" -DefaultValue -8)
             $state.Keywords[[string](Get-ConfigProperty -Object $rule -Name "keyword" -DefaultValue "Risk: configured exclusion keyword")] = $true
         }
@@ -155,7 +185,7 @@ function Get-JobMatch {
 
     $rule = Get-ConfigProperty -Object $negative -Name "broad_analyst" -DefaultValue $null
     $pattern = [string](Get-ConfigProperty -Object $rule -Name "pattern" -DefaultValue "")
-    if (-not [string]::IsNullOrWhiteSpace($pattern) -and $fullText -match $pattern) {
+    if (-not [string]::IsNullOrWhiteSpace($pattern) -and $fullText -match $pattern -and -not (Test-JobCrawlerNegativeRuleSuppressed -Rule $rule -TitleText $titleText -FullText $fullText -HasProfileContext:$hasProfileContext)) {
         $state.Score += [int](Get-ConfigProperty -Object $rule -Name "score" -DefaultValue -10)
         $state.Keywords[[string](Get-ConfigProperty -Object $rule -Name "keyword" -DefaultValue "Risk: configured broad-role exclusion")] = $true
     }
@@ -173,7 +203,7 @@ function Get-JobMatch {
 
     $rule = Get-ConfigProperty -Object $negative -Name "engineering" -DefaultValue $null
     $pattern = [string](Get-ConfigProperty -Object $rule -Name "pattern" -DefaultValue "")
-    if (-not [string]::IsNullOrWhiteSpace($pattern) -and $fullText -match $pattern) {
+    if (-not [string]::IsNullOrWhiteSpace($pattern) -and $fullText -match $pattern -and -not (Test-JobCrawlerNegativeRuleSuppressed -Rule $rule -TitleText $titleText -FullText $fullText -HasProfileContext:$hasProfileContext)) {
         $state.Score += [int](Get-ConfigProperty -Object $rule -Name "score" -DefaultValue -15)
         $state.Keywords[[string](Get-ConfigProperty -Object $rule -Name "keyword" -DefaultValue "Risk: configured exclusion keyword")] = $true
     }
@@ -739,6 +769,28 @@ function Test-IsAppliedStatus {
     return $statusText -match "^(applied|interview|offer|rejected|withdrawn)$"
 }
 
+function Get-EffectiveAppliedDate {
+    param(
+        [AllowNull()][string]$Status,
+        [AllowNull()][string]$AppliedDate,
+        [AllowNull()][string]$DefaultDate = ""
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($AppliedDate)) {
+        return [string]$AppliedDate
+    }
+
+    if (-not (Test-IsAppliedStatus $Status)) {
+        return ""
+    }
+
+    if ([string]::IsNullOrWhiteSpace($DefaultDate)) {
+        return (Get-Date -Format "yyyy-MM-dd")
+    }
+
+    return [string]$DefaultDate
+}
+
 function New-JobResult {
     param(
         [string]$Title,
@@ -1060,10 +1112,13 @@ function Get-FeedbackLearningAdjustment {
     $configuredNegativeRules = @(Get-ConfigPathValue -Object $script:JobCrawlerMatchingRules -Path "feedback_negative_rules" -DefaultValue @())
     $configuredRules = @($configuredNegativeRules | ForEach-Object {
         [PSCustomObject]@{
-            Key     = [string](Get-ConfigProperty -Object $_ -Name "key" -DefaultValue "")
-            Pattern = [string](Get-ConfigProperty -Object $_ -Name "pattern" -DefaultValue "")
-            Label   = [string](Get-ConfigProperty -Object $_ -Name "label" -DefaultValue "")
-            Max     = [int](Get-ConfigProperty -Object $_ -Name "max" -DefaultValue 8)
+            Key                    = [string](Get-ConfigProperty -Object $_ -Name "key" -DefaultValue "")
+            Pattern                = [string](Get-ConfigProperty -Object $_ -Name "pattern" -DefaultValue "")
+            ExceptPattern          = [string](Get-ConfigProperty -Object $_ -Name "except_pattern" -DefaultValue "")
+            SkipWhenProfileSkill   = [bool](Get-ConfigProperty -Object $_ -Name "skip_when_profile_skill_signal" -DefaultValue $false)
+            SkipWhenProfileContext = [bool](Get-ConfigProperty -Object $_ -Name "skip_when_profile_context" -DefaultValue $false)
+            Label                  = [string](Get-ConfigProperty -Object $_ -Name "label" -DefaultValue "")
+            Max                    = [int](Get-ConfigProperty -Object $_ -Name "max" -DefaultValue 8)
         }
     } | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Key) -and -not [string]::IsNullOrWhiteSpace($_.Pattern) })
     $negativeRuleMap = [ordered]@{}
@@ -1082,10 +1137,13 @@ function Get-FeedbackLearningAdjustment {
             continue
         }
 
-        if ([bool](Get-ConfigProperty -Object $rule -Name "skip_when_profile_skill_signal" -DefaultValue $false) -and $HasProfileSkillSignal) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$rule.ExceptPattern) -and $FullText -match [string]$rule.ExceptPattern) {
             continue
         }
-        if ([bool](Get-ConfigProperty -Object $rule -Name "skip_when_profile_context" -DefaultValue $false) -and $HasProfileContext) {
+        if ([bool]$rule.SkipWhenProfileSkill -and $HasProfileSkillSignal) {
+            continue
+        }
+        if ([bool]$rule.SkipWhenProfileContext -and $HasProfileContext) {
             continue
         }
 

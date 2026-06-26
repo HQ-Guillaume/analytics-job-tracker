@@ -79,6 +79,12 @@ function Get-CellText {
     return [string]$Sheet.Cells.Item($Row, [int]$Headers[$Name]).Text
 }
 
+function Test-IsApplicationLifecycleStatus {
+    param([AllowNull()][string]$Value)
+
+    return (([string]$Value).Trim().ToLowerInvariant() -match "^(applied|interview|offer|rejected|withdrawn)$")
+}
+
 function Get-StatusFontColor {
     param([string]$Value)
 
@@ -232,7 +238,7 @@ function Update-XlsxTracker {
             if (-not [string]::IsNullOrWhiteSpace($AppliedDate)) {
                 $sheet.Cells.Item($targetRow, [int]$headers["applied_date"]).Value2 = $AppliedDate
             }
-            elseif ($Status -eq "applied" -and [string]::IsNullOrWhiteSpace((Get-CellText -Sheet $sheet -Headers $headers -Row $targetRow -Name "applied_date"))) {
+            elseif ((Test-IsApplicationLifecycleStatus $Status) -and [string]::IsNullOrWhiteSpace((Get-CellText -Sheet $sheet -Headers $headers -Row $targetRow -Name "applied_date"))) {
                 $sheet.Cells.Item($targetRow, [int]$headers["applied_date"]).Value2 = Get-Date -Format "yyyy-MM-dd"
             }
         }

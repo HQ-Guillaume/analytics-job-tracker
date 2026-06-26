@@ -172,6 +172,8 @@ $script:LastCrawlerExitCode = $null
 Set-LauncherOutputPaths
 $script:SettingsGroup = $null
 $script:SourceListView = $null
+$script:SourceHealthList = $null
+$script:SourceHealthSummaryLabel = $null
 $script:SourceCheckboxes = @()
 $script:IsRefreshingSourceList = $false
 $script:ModeComboBox = $null
@@ -735,6 +737,7 @@ function Complete-CrawlerRun {
         Remove-LauncherRunScript
         Remove-LauncherRunLock
         Refresh-ReadinessChecklist
+        Refresh-SourceHealthList
     }
     catch {
         Show-LauncherException -Context "Could not finalize crawler run" -Exception $_.Exception
@@ -882,8 +885,9 @@ function Get-SelectedSourceDefinitionsFromGui {
     $definitions = New-Object System.Collections.Generic.List[object]
     if ($null -ne $script:SourceListView) {
         foreach ($item in $script:SourceListView.Items) {
-            if ((Get-GuiCheckedValue $item) -and $null -ne $item.Tag) {
-                $definitions.Add($item.Tag) | Out-Null
+            $metadata = Get-GuiControlTag -Control $item
+            if ((Get-GuiCheckedValue $item) -and $null -ne $metadata) {
+                $definitions.Add($metadata) | Out-Null
             }
         }
         return @($definitions.ToArray())
@@ -995,6 +999,32 @@ function Refresh-ReadinessChecklist {
         }
         else {
             Add-ReadinessItem -Area "Sources" -Status ("{0} enabled" -f $selectedSources.Count) -Detail (($selectedSources | ForEach-Object { $_.ShortLabel }) -join ", ")
+        }
+
+        $lastRun = Get-GuiLastProfileRunHistoryEntry
+        if ($null -eq $lastRun) {
+            Add-ReadinessItem -Area "Source health" -Status "No history" -Detail "Run once to collect source duration, errors, and matches." -Level "warning"
+        }
+        else {
+            $sourceStats = @(Get-ConfigProperty -Object $lastRun -Name "source_stats" -DefaultValue @())
+            $errorCount = 0
+            $zeroMatchCount = 0
+            foreach ($stat in $sourceStats) {
+                $errorCount += [int](Get-ConfigProperty -Object $stat -Name "Errors" -DefaultValue 0)
+                if ([int](Get-ConfigProperty -Object $stat -Name "Matches" -DefaultValue 0) -eq 0) {
+                    $zeroMatchCount++
+                }
+            }
+
+            if ($errorCount -gt 0) {
+                Add-ReadinessItem -Area "Source health" -Status "Errors" -Detail ("Last run had {0} source error(s). Open Health tab for details." -f $errorCount) -Level "warning"
+            }
+            elseif ($zeroMatchCount -gt 0) {
+                Add-ReadinessItem -Area "Source health" -Status "Review" -Detail ("Last run had {0} source(s) with 0 matches. Open Health tab for details." -f $zeroMatchCount) -Level "warning"
+            }
+            else {
+                Add-ReadinessItem -Area "Source health" -Status "Healthy" -Detail "Last run source metrics look usable."
+            }
         }
 
         $credentialIssues = @(Get-EnabledSourceCredentialIssues)
@@ -1195,7 +1225,10 @@ function Start-CrawlerFromGui {
     $enabledSourceKeys = New-Object System.Collections.Generic.List[string]
     $skippedSourceKeys = New-Object System.Collections.Generic.List[string]
     foreach ($sourceItem in $script:SourceListView.Items) {
-        $metadata = $sourceItem.Tag
+        $metadata = Get-GuiControlTag -Control $sourceItem
+        if ($null -eq $metadata) {
+            continue
+        }
         $sourceChecked = Get-GuiCheckedValue $sourceItem
         $sourceKey = [string]$metadata.Key
         if ([string]::IsNullOrWhiteSpace($sourceKey)) {
@@ -1660,11 +1693,14 @@ $bodySplit.Panel1.Controls.Add($leftTabs)
 
 $sourcesTab = New-Object System.Windows.Forms.TabPage
 $sourcesTab.Text = "Sources"
+$healthTab = New-Object System.Windows.Forms.TabPage
+$healthTab.Text = "Health"
 $credentialsTab = New-Object System.Windows.Forms.TabPage
 $credentialsTab.Text = "Credentials"
 $readinessTab = New-Object System.Windows.Forms.TabPage
 $readinessTab.Text = "Readiness"
 [void]$leftTabs.TabPages.Add($sourcesTab)
+[void]$leftTabs.TabPages.Add($healthTab)
 [void]$leftTabs.TabPages.Add($credentialsTab)
 [void]$leftTabs.TabPages.Add($readinessTab)
 
@@ -1686,18 +1722,64 @@ $sourceList.Add_ItemChecked({
         if ($script:IsRefreshingSourceList) {
             return
         }
-        $changedItem = $null
-        try {
-            $changedItem = $eventArgs.Item
-        }
-        catch {
+        $changedItem = Get-GuiObjectPropertyValue -Object $eventArgs -Name "Item" -DefaultValue $null
+        if ($null -eq $changedItem) {
             return
         }
         Update-GuiSourceListItem -Item $changedItem
         Refresh-ReadinessChecklist
+        Refresh-SourceHealthList
     }
 })
 $sourcesTab.Controls.Add($sourceList)
+
+$healthLayout = New-Object System.Windows.Forms.TableLayoutPanel
+$healthLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
+$healthLayout.Padding = New-Object System.Windows.Forms.Padding(10)
+$healthLayout.ColumnCount = 1
+$healthLayout.RowCount = 3
+Add-ProfileTableColumn -Table $healthLayout -Width 100
+Add-ProfileTableRow -Table $healthLayout -Height 42 -Absolute
+Add-ProfileTableRow -Table $healthLayout -Height 100
+Add-ProfileTableRow -Table $healthLayout -Height 42 -Absolute
+$healthTab.Controls.Add($healthLayout)
+
+$script:SourceHealthSummaryLabel = New-Object System.Windows.Forms.Label
+$script:SourceHealthSummaryLabel.Text = "No run history loaded yet."
+$script:SourceHealthSummaryLabel.Dock = [System.Windows.Forms.DockStyle]::Fill
+$script:SourceHealthSummaryLabel.ForeColor = [System.Drawing.Color]::FromArgb(77, 91, 114)
+$script:SourceHealthSummaryLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$healthLayout.Controls.Add($script:SourceHealthSummaryLabel, 0, 0)
+
+$sourceHealthList = New-Object System.Windows.Forms.ListView
+$script:SourceHealthList = $sourceHealthList
+$sourceHealthList.Dock = [System.Windows.Forms.DockStyle]::Fill
+$sourceHealthList.View = [System.Windows.Forms.View]::Details
+$sourceHealthList.FullRowSelect = $true
+$sourceHealthList.GridLines = $false
+[void]$sourceHealthList.Columns.Add("Source", 92)
+[void]$sourceHealthList.Columns.Add("State", 76)
+[void]$sourceHealthList.Columns.Add("Credentials", 116)
+[void]$sourceHealthList.Columns.Add("Match", 52)
+[void]$sourceHealthList.Columns.Add("Err", 42)
+[void]$sourceHealthList.Columns.Add("Time", 52)
+[void]$sourceHealthList.Columns.Add("Req", 46)
+[void]$sourceHealthList.Columns.Add("Skip", 48)
+[void]$sourceHealthList.Columns.Add("Cache", 52)
+[void]$sourceHealthList.Columns.Add("Notes", 160)
+$healthLayout.Controls.Add($sourceHealthList, 0, 1)
+
+$healthButtons = New-Object System.Windows.Forms.FlowLayoutPanel
+$healthButtons.Dock = [System.Windows.Forms.DockStyle]::Fill
+$healthButtons.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$healthButtons.WrapContents = $false
+$healthLayout.Controls.Add($healthButtons, 0, 2)
+
+$refreshHealthButton = New-Object System.Windows.Forms.Button
+$refreshHealthButton.Text = "Refresh"
+$refreshHealthButton.Size = New-Object System.Drawing.Size(82, 28)
+$refreshHealthButton.Add_Click({ Invoke-LauncherAction -Context "Refresh source health" -Action { Refresh-SourceHealthList } })
+[void]$healthButtons.Controls.Add($refreshHealthButton)
 
 $credentialsLayout = New-Object System.Windows.Forms.TableLayoutPanel
 $credentialsLayout.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -1837,6 +1919,7 @@ Refresh-ModeComboBox
 Refresh-DaysBackComboBox
 Refresh-SourceCheckboxes
 Refresh-CredentialList
+Refresh-SourceHealthList
 Add-LogLine "Launcher ready."
 Add-LogLine ("Profile: {0} ({1})" -f $script:CrawlerConfig.Profile.Label, $script:CrawlerConfig.Profile.Id)
 Add-LogLine ("Tracker: {0}" -f (Get-LauncherDefaultTrackerPath))

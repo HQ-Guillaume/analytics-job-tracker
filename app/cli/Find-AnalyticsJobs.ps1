@@ -233,6 +233,7 @@ $SeenResultKeys = @{}
 $LinkedInDelayMilliseconds = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "delays_ms.linkedin_detail" -DefaultValue 1200)
 $AdzunaDelayMilliseconds = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "delays_ms.adzuna_search" -DefaultValue 2500)
 $ApecDelayMilliseconds = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "delays_ms.apec_search" -DefaultValue 300)
+$FranceTravailSearchDelayMilliseconds = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "delays_ms.france_travail_search" -DefaultValue 300)
 $HelloWorkSearchDelayMilliseconds = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "delays_ms.hellowork_search" -DefaultValue 350)
 $HelloWorkDetailDelayMilliseconds = [int](Get-ConfigPathValue -Object $JobCrawlerRuntimeConfig -Path "delays_ms.hellowork_detail" -DefaultValue 450)
 $MinimumMatchScore = [int](Get-ConfigPathValue -Object $JobCrawlerMatchingRules -Path "thresholds.minimum_match_score" -DefaultValue 35)

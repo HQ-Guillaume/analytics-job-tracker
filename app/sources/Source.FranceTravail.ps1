@@ -118,6 +118,147 @@ function Get-FranceTravailSourceText {
     )
 }
 
+function Get-FranceTravailSearchDelayMilliseconds {
+    $delayVariable = Get-Variable -Name "FranceTravailSearchDelayMilliseconds" -ErrorAction SilentlyContinue
+    if ($null -ne $delayVariable -and $null -ne $delayVariable.Value) {
+        return [Math]::Max(0, [int]$delayVariable.Value)
+    }
+
+    return 300
+}
+
+function Start-FranceTravailSearchDelay {
+    $delayMilliseconds = Get-FranceTravailSearchDelayMilliseconds
+    if ($delayMilliseconds -gt 0) {
+        Start-Sleep -Milliseconds $delayMilliseconds
+    }
+}
+
+function Get-FranceTravailHttpErrorSummary {
+    param([AllowNull()][System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $statusCode = 0
+    $retryAfterMilliseconds = 0
+    $body = ""
+    $message = ""
+
+    if ($null -ne $ErrorRecord) {
+        $message = [string]$ErrorRecord.Exception.Message
+        try {
+            $response = $ErrorRecord.Exception.Response
+            if ($null -ne $response) {
+                try {
+                    $statusCode = [int]$response.StatusCode
+                }
+                catch {
+                    $statusCode = 0
+                }
+
+                try {
+                    $retryAfter = [string]$response.Headers["Retry-After"]
+                    $retryAfterSeconds = 0
+                    if ([int]::TryParse($retryAfter, [ref]$retryAfterSeconds) -and $retryAfterSeconds -gt 0) {
+                        $retryAfterMilliseconds = $retryAfterSeconds * 1000
+                    }
+                }
+                catch {
+                    $retryAfterMilliseconds = 0
+                }
+
+                try {
+                    $stream = $response.GetResponseStream()
+                    if ($null -ne $stream) {
+                        $reader = New-Object System.IO.StreamReader($stream)
+                        $body = [string]$reader.ReadToEnd()
+                    }
+                }
+                catch {
+                    $body = ""
+                }
+            }
+        }
+        catch {
+            $statusCode = 0
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($body)) {
+        $body = Repair-DisplayText $body
+        $body = [regex]::Replace($body, "\s+", " ").Trim()
+        if ($body.Length -gt 500) {
+            $body = $body.Substring(0, 500)
+        }
+    }
+
+    return [pscustomobject]@{
+        StatusCode = $statusCode
+        Message = $message
+        Body = $body
+        RetryAfterMilliseconds = $retryAfterMilliseconds
+    }
+}
+
+function Invoke-FranceTravailSearch {
+    param(
+        [string]$Url,
+        [hashtable]$Headers,
+        [string]$Query,
+        [int]$Page,
+        [AllowNull()]$Stats
+    )
+
+    $maxRetries = [int](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "http.max_retries" -DefaultValue 2)
+    $retryDelayMilliseconds = [int](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "http.retry_delay_ms" -DefaultValue 1200)
+    $retryBackoffMultiplier = [double](Get-ConfigPathValue -Object $script:JobCrawlerRuntimeConfig -Path "http.retry_backoff_multiplier" -DefaultValue 2.0)
+    $attemptCount = [Math]::Max(1, $maxRetries + 1)
+
+    for ($attempt = 1; $attempt -le $attemptCount; $attempt++) {
+        try {
+            Add-SourceMetric -Stats $Stats -Name "SearchRequests"
+            $response = Invoke-RestMethod -Uri $Url -Headers $Headers -Method Get -TimeoutSec 45
+            Start-FranceTravailSearchDelay
+            return [pscustomobject]@{
+                Success = $true
+                Response = $response
+            }
+        }
+        catch {
+            Add-SourceMetric -Stats $Stats -Name "Errors"
+            $summary = Get-FranceTravailHttpErrorSummary $_
+            $detail = $summary.Message
+            if ($summary.StatusCode -gt 0) {
+                $detail = "HTTP {0}; {1}" -f $summary.StatusCode, $detail
+            }
+            if (-not [string]::IsNullOrWhiteSpace($summary.Body)) {
+                $detail = "{0}; body: {1}" -f $detail, $summary.Body
+            }
+
+            $isRetryable = ($summary.StatusCode -eq 429 -or $summary.StatusCode -ge 500)
+            if ($isRetryable -and $attempt -lt $attemptCount) {
+                $delayMilliseconds = $summary.RetryAfterMilliseconds
+                if ($delayMilliseconds -le 0) {
+                    $delayMilliseconds = [int]($retryDelayMilliseconds * [Math]::Pow($retryBackoffMultiplier, ($attempt - 1)))
+                }
+                Write-Warning ("France Travail search failed for '{0}' page {1}, attempt {2}/{3}; retrying in {4}ms: {5}" -f $Query, $Page, $attempt, $attemptCount, $delayMilliseconds, $detail)
+                Start-Sleep -Milliseconds $delayMilliseconds
+                continue
+            }
+
+            Write-Warning ("France Travail search failed for '{0}' page {1}, attempt {2}/{3}: {4}" -f $Query, $Page, $attempt, $attemptCount, $detail)
+            Start-FranceTravailSearchDelay
+            return [pscustomobject]@{
+                Success = $false
+                Response = $null
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Success = $false
+        Response = $null
+    }
+}
+
 function Get-FranceTravailJobs {
     $accessToken = Get-FranceTravailAccessToken
     if ([string]::IsNullOrWhiteSpace($accessToken)) {
@@ -156,15 +297,11 @@ function Get-FranceTravailJobs {
             }
 
             $url = "{0}?{1}" -f $searchUrl, (ConvertTo-QueryString $params)
-            try {
-                Add-SourceMetric -Stats $stats -Name "SearchRequests"
-                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -TimeoutSec 45
-            }
-            catch {
-                Add-SourceMetric -Stats $stats -Name "Errors"
-                Write-Warning ("France Travail search failed for '{0}' page {1}: {2}" -f $query, ($page + 1), $_.Exception.Message)
+            $searchResult = Invoke-FranceTravailSearch -Url $url -Headers $headers -Query $query -Page ($page + 1) -Stats $stats
+            if (-not $searchResult.Success) {
                 break
             }
+            $response = $searchResult.Response
 
             $jobArray = @()
             if ($null -ne $response -and @($response.PSObject.Properties.Name) -contains "resultats") {
@@ -214,7 +351,6 @@ function Get-FranceTravailJobs {
             if ($jobArray.Count -lt $pageSize) {
                 break
             }
-            Start-Sleep -Milliseconds 400
         }
     }
 

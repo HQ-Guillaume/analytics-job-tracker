@@ -130,6 +130,21 @@ $currentBlankContractRow = New-JobResult -Title "Web Analyst" -CompanyName "CDD 
 $excludedContractMerge = Merge-JobsWithTracker -CurrentRows @($currentBlankContractRow) -ExistingRows @($existingCddRow) -Path "integration.xlsx" -SkipBackup
 Assert-Integration -Condition (@($excludedContractMerge.TrackerRows).Count -eq 0 -and [int]$excludedContractMerge.RemovedCount -eq 1) -Message "Expected excluded existing contract values not to leak back into current non-application rows."
 
+$existingAppliedWithoutDate = New-OrderedJobRecord @{
+    status         = "applied"
+    job_title      = "Web Analyst"
+    company_name   = "Applied Company"
+    location       = "Paris"
+    contract_type  = "CDI"
+    match_score    = "80"
+    match_level    = "High"
+    job_url_raw    = "https://example.test/applied-without-date"
+    platform       = "LinkedIn"
+    published_date = ([DateTimeOffset]::Now.AddDays(-40).ToString("yyyy-MM-dd"))
+}
+$appliedDateMerge = Merge-JobsWithTracker -CurrentRows @() -ExistingRows @($existingAppliedWithoutDate) -Path "integration.xlsx" -SkipBackup
+Assert-Integration -Condition (@($appliedDateMerge.TrackerRows).Count -eq 1 -and (Get-RowValue -Row $appliedDateMerge.TrackerRows[0] -Name "applied_date") -eq $script:RunDate) -Message "Expected application-status rows with empty Applied date to be auto-filled during merge."
+
 $nextonDuplicateRows = @(
     (New-OrderedJobRecord @{
         status         = "ignored"

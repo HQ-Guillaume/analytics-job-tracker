@@ -568,6 +568,63 @@ function Set-ReviewPriorityFormulas {
     }
 }
 
+function Get-AppliedDateAutoFillFormulaA1 {
+    param(
+        [string]$StatusReference,
+        [string]$AppliedDateReference
+    )
+
+    return 'IF(OR({0}="applied",{0}="interview",{0}="offer",{0}="rejected",{0}="withdrawn"),IF({1}="",TODAY(),{1}),"")' -f $StatusReference, $AppliedDateReference
+}
+
+function Set-AppliedDateAutoFillFormulas {
+    param(
+        $Excel,
+        $Sheet,
+        [hashtable]$ColumnIndex,
+        [int]$LastDataRow
+    )
+
+    if ($null -eq $Sheet -or
+        -not $ColumnIndex.ContainsKey("status") -or
+        -not $ColumnIndex.ContainsKey("applied_date")) {
+        return
+    }
+
+    try {
+        if ($null -ne $Excel) {
+            $Excel.Iteration = $true
+            $Excel.MaxIterations = 1
+            $Excel.MaxChange = 0.001
+        }
+    }
+    catch {
+    }
+
+    $lastRow = [Math]::Max(2, $LastDataRow)
+    $statusColumn = ConvertTo-ExcelColumnName ([int]$ColumnIndex["status"])
+    $appliedDateColumn = ConvertTo-ExcelColumnName ([int]$ColumnIndex["applied_date"])
+
+    for ($row = 2; $row -le $lastRow; $row++) {
+        $cell = $null
+        try {
+            $cell = $Sheet.Cells.Item($row, [int]$ColumnIndex["applied_date"])
+            $text = [string]$cell.Text
+            $formula = [string]$cell.Formula
+            if ([string]::IsNullOrWhiteSpace($text) -or $formula -match "TODAY\(\)") {
+                $statusReference = '${0}{1}' -f $statusColumn, $row
+                $appliedDateReference = '${0}{1}' -f $appliedDateColumn, $row
+                $cell.Formula = "=" + (Get-AppliedDateAutoFillFormulaA1 -StatusReference $statusReference -AppliedDateReference $appliedDateReference)
+            }
+        }
+        catch {
+        }
+        finally {
+            Release-ComObject $cell
+        }
+    }
+}
+
 function Set-ReviewPriorityConditionalFormatting {
     param(
         $Sheet,
@@ -756,7 +813,7 @@ function Set-JobTrackerDataValidation {
             $appliedDateRange.Validation.Delete()
             $appliedDateRange.Validation.Add(4, 1, 1, "2020-01-01", "2035-12-31")
             $appliedDateRange.Validation.InputTitle = "Applied date"
-            $appliedDateRange.Validation.InputMessage = "Use yyyy-mm-dd when you mark a job as applied."
+            $appliedDateRange.Validation.InputMessage = "Auto-filled when status becomes applied/interview/offer/rejected/withdrawn. You can overwrite it if needed."
             Release-ComObject $appliedDateRange
         }
         catch {

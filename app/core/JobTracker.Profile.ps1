@@ -369,16 +369,95 @@ function Get-JobCrawlerProfileQuality {
         $findings.Add("Profile has enough breadth for crawling and enough criteria for filtering.") | Out-Null
     }
 
+    $checklist = New-Object System.Collections.Generic.List[object]
+    $addChecklistItem = {
+        param(
+            [string]$Area,
+            [string]$Status,
+            [string]$Detail,
+            [string]$Level = "ok"
+        )
+
+        $checklist.Add([PSCustomObject]@{
+                Area   = $Area
+                Status = $Status
+                Detail = $Detail
+                Level  = $Level
+            }) | Out-Null
+    }
+
+    if ($titles.Count -ge 2) {
+        & $addChecklistItem "Target titles" "Ready" ("{0} title variants" -f $titles.Count)
+    }
+    elseif ($titles.Count -eq 1) {
+        & $addChecklistItem "Target titles" "Narrow" "Add related titles to avoid exact-title matching only." "warning"
+    }
+    else {
+        & $addChecklistItem "Target titles" "Missing" "Add at least one role title." "error"
+    }
+
+    if ($queries.Count -ge 8 -and -not $exactTitleOnly) {
+        & $addChecklistItem "Search queries" "Strong" ("{0} crawl queries" -f $queries.Count)
+    }
+    elseif ($queries.Count -ge 4 -and -not $exactTitleOnly) {
+        & $addChecklistItem "Search queries" "Ready" ("{0} crawl queries" -f $queries.Count)
+    }
+    elseif ($queries.Count -gt 0) {
+        & $addChecklistItem "Search queries" "Too narrow" "Use Improve queries to add broader role and title + skill searches." "warning"
+    }
+    else {
+        & $addChecklistItem "Search queries" "Missing" "Search queries bring jobs into the crawler." "error"
+    }
+
+    if ($skills.Count -ge 3) {
+        & $addChecklistItem "Positive signals" "Ready" ("{0} skills/tools/missions" -f $skills.Count)
+    }
+    elseif ($skills.Count -gt 0) {
+        & $addChecklistItem "Positive signals" "Light" "Add more skills, tools, missions, or industries to rank results." "warning"
+    }
+    else {
+        & $addChecklistItem "Positive signals" "Missing" "Add skills or mission keywords so filtering is not title-only." "error"
+    }
+
+    if ($exclusions.Count -gt 0) {
+        & $addChecklistItem "Negative signals" "Ready" ("{0} exclusion keywords" -f $exclusions.Count)
+    }
+    else {
+        & $addChecklistItem "Negative signals" "Optional" "Add exclusions after the first crawl if results are noisy." "warning"
+    }
+
+    if ($locations.Count -gt 0) {
+        & $addChecklistItem "Location" "Ready" ($locations -join ", ")
+    }
+    else {
+        & $addChecklistItem "Location" "Missing" "Add at least a country or region." "warning"
+    }
+
+    if ($contracts.Count -gt 0) {
+        & $addChecklistItem "Contracts" "Ready" ("Excluded: {0}" -f ($contracts -join ", "))
+    }
+    else {
+        & $addChecklistItem "Contracts" "Open" "No contract type will be excluded by this profile." "warning"
+    }
+
     $level = "Risky"
     if ($score -ge 85) { $level = "Strong" }
     elseif ($score -ge 70) { $level = "Good" }
     elseif ($score -ge 50) { $level = "Needs work" }
 
     return [PSCustomObject]@{
-        Score            = [Math]::Min(100, $score)
-        Level            = $level
-        Findings         = @($findings.ToArray())
-        QuerySuggestions = @($suggestions)
+        Score                  = [Math]::Min(100, $score)
+        Level                  = $level
+        Findings               = @($findings.ToArray())
+        Checklist              = @($checklist.ToArray())
+        QuerySuggestions       = @($suggestions)
+        ExactTitleOnlyQueries  = $exactTitleOnly
+        TitleCount             = $titles.Count
+        SearchQueryCount       = $queries.Count
+        ImportantSkillCount    = $skills.Count
+        ExclusionKeywordCount  = $exclusions.Count
+        TargetLocationCount    = $locations.Count
+        ExcludedContractCount  = $contracts.Count
     }
 }
 

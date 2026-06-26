@@ -23,6 +23,35 @@ function Get-GuiCheckedValue {
     }
 }
 
+function Get-GuiObjectPropertyValue {
+    param(
+        [AllowNull()]$Object,
+        [string]$Name,
+        [AllowNull()]$DefaultValue = $null
+    )
+
+    if ($null -eq $Object -or [string]::IsNullOrWhiteSpace($Name)) {
+        return $DefaultValue
+    }
+
+    try {
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -ne $property) {
+            return $property.Value
+        }
+    }
+    catch {
+    }
+
+    return $DefaultValue
+}
+
+function Get-GuiControlTag {
+    param([AllowNull()]$Control)
+
+    return Get-GuiObjectPropertyValue -Object $Control -Name "Tag" -DefaultValue $null
+}
+
 function Refresh-ModeComboBox {
     if ($null -eq $script:ModeComboBox) {
         return
@@ -190,13 +219,14 @@ function Test-GuiSourceMissingCredentials {
 function Update-GuiSourceListItem {
     param($Item)
 
-    if ($null -eq $Item -or $null -eq $Item.Tag) {
+    $definition = Get-GuiControlTag -Control $Item
+    $subItems = Get-GuiObjectPropertyValue -Object $Item -Name "SubItems" -DefaultValue $null
+    if ($null -eq $Item -or $null -eq $definition -or $null -eq $subItems) {
         return
     }
 
-    $definition = $Item.Tag
-    while ($Item.SubItems.Count -lt 4) {
-        [void]$Item.SubItems.Add("")
+    while ($subItems.Count -lt 4) {
+        [void]$subItems.Add("")
     }
 
     $credentialSummary = Get-GuiSourceCredentialSummary -Definition $definition
@@ -217,10 +247,14 @@ function Update-GuiSourceListItem {
         $state = "Disabled, missing credentials"
     }
 
-    $Item.SubItems[1].Text = $kind
-    $Item.SubItems[2].Text = $credentialSummary
-    $Item.SubItems[3].Text = $state
-    $Item.ToolTipText = ("{0} | {1} | {2}" -f $definition.Label, $kind, $credentialSummary)
+    $subItems[1].Text = $kind
+    $subItems[2].Text = $credentialSummary
+    $subItems[3].Text = $state
+    try {
+        $Item.ToolTipText = ("{0} | {1} | {2}" -f $definition.Label, $kind, $credentialSummary)
+    }
+    catch {
+    }
 
     if ($isChecked -and $missingCredentials) {
         $Item.ForeColor = [System.Drawing.Color]::FromArgb(154, 69, 59)
@@ -230,6 +264,249 @@ function Update-GuiSourceListItem {
     }
     else {
         $Item.ForeColor = [System.Drawing.Color]::FromArgb(30, 104, 72)
+    }
+}
+
+function ConvertTo-GuiSourceHealthKey {
+    param([AllowNull()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+
+    return [regex]::Replace((ConvertTo-JobCrawlerPlainText $Text), "[^a-z0-9]+", "")
+}
+
+function Get-GuiRunHistoryPath {
+    $relativePath = [string](Get-ConfigPathValue -Object $script:CrawlerConfig.Runtime -Path "output.run_history_path" -DefaultValue "output\run_history.jsonl")
+    return Resolve-JobCrawlerPath -BasePath $script:ProjectRoot -Path $relativePath
+}
+
+function Test-GuiRunHistoryEntryMatchesProfile {
+    param([AllowNull()]$Entry)
+
+    if ($null -eq $Entry -or -not (Test-LauncherProfileConfigured)) {
+        return $false
+    }
+
+    $profileText = [string](Get-ConfigProperty -Object $Entry -Name "profile" -DefaultValue "")
+    $profileId = Get-SelectedProfileId
+    if ([string]::IsNullOrWhiteSpace($profileId)) {
+        return $false
+    }
+
+    return ($profileText -match ("\({0}\)" -f [regex]::Escape($profileId)))
+}
+
+function Get-GuiLastProfileRunHistoryEntry {
+    $path = Get-GuiRunHistoryPath
+    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) {
+        return $null
+    }
+
+    $lines = @(Get-Content -LiteralPath $path -Encoding UTF8 -ErrorAction SilentlyContinue)
+    for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+        $line = ([string]$lines[$i]).Trim()
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        try {
+            $entry = $line | ConvertFrom-Json
+            if (Test-GuiRunHistoryEntryMatchesProfile -Entry $entry) {
+                return $entry
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return $null
+}
+
+function Find-GuiSourceHealthStat {
+    param(
+        [AllowNull()]$Entry,
+        [AllowNull()]$Definition
+    )
+
+    if ($null -eq $Entry -or $null -eq $Definition) {
+        return $null
+    }
+
+    $sourceStats = @(Get-ConfigProperty -Object $Entry -Name "source_stats" -DefaultValue @())
+    if ($sourceStats.Count -eq 0) {
+        return $null
+    }
+
+    $candidateKeys = New-Object System.Collections.Generic.List[string]
+    foreach ($value in @($Definition.Key, $Definition.ShortLabel, $Definition.Label)) {
+        $key = ConvertTo-GuiSourceHealthKey $value
+        if (-not [string]::IsNullOrWhiteSpace($key) -and -not $candidateKeys.Contains($key)) {
+            $candidateKeys.Add($key) | Out-Null
+        }
+    }
+    switch ([string]$Definition.Key) {
+        "linkedin" { $candidateKeys.Add("linkedin") | Out-Null }
+        "wttj_public" {
+            $candidateKeys.Add("wttjpublic") | Out-Null
+            $candidateKeys.Add("welcometothejunglepublic") | Out-Null
+        }
+    }
+
+    foreach ($stat in $sourceStats) {
+        $statKey = ConvertTo-GuiSourceHealthKey ([string](Get-ConfigProperty -Object $stat -Name "Source" -DefaultValue ""))
+        if ([string]::IsNullOrWhiteSpace($statKey)) {
+            continue
+        }
+
+        foreach ($candidateKey in @($candidateKeys.ToArray() | Select-Object -Unique)) {
+            if ([string]::IsNullOrWhiteSpace($candidateKey)) {
+                continue
+            }
+            if ($statKey -eq $candidateKey -or
+                ($candidateKey.Length -ge 4 -and $statKey.Contains($candidateKey)) -or
+                ($statKey.Length -ge 4 -and $candidateKey.Contains($statKey))) {
+                return $stat
+            }
+        }
+    }
+
+    return $null
+}
+
+function Get-GuiSourceSelectionState {
+    param($Definition)
+
+    $selected = [bool](Get-ConfigProperty -Object $Definition -Name "EnabledByDefault" -DefaultValue $true)
+    if ($null -ne $script:SourceListView) {
+        foreach ($item in $script:SourceListView.Items) {
+            $metadata = Get-GuiControlTag -Control $item
+            if ($null -eq $metadata) {
+                continue
+            }
+            if ([string]$metadata.Key -eq [string]$Definition.Key) {
+                $selected = Get-GuiCheckedValue $item
+                break
+            }
+        }
+    }
+
+    return $selected
+}
+
+function Refresh-SourceHealthList {
+    if ($null -eq $script:SourceHealthList) {
+        return
+    }
+
+    if ($null -ne $script:MainForm -and $script:MainForm.InvokeRequired) {
+        try {
+            [void]$script:MainForm.BeginInvoke([System.Action]{ Refresh-SourceHealthList })
+        }
+        catch {
+            Write-LauncherError -Context "Could not refresh source health" -Exception $_.Exception
+        }
+        return
+    }
+
+    $entry = Get-GuiLastProfileRunHistoryEntry
+    if ($null -eq $entry) {
+        if ($null -ne $script:SourceHealthSummaryLabel) {
+            $script:SourceHealthSummaryLabel.Text = "No run history for the selected profile yet."
+        }
+    }
+    else {
+        if ($null -ne $script:SourceHealthSummaryLabel) {
+            $createdAt = [string](Get-ConfigProperty -Object $entry -Name "created_at" -DefaultValue "")
+            $crawlMode = [string](Get-ConfigProperty -Object $entry -Name "crawl_mode" -DefaultValue "")
+            $totalMatched = [string](Get-ConfigProperty -Object $entry -Name "total_matched" -DefaultValue "")
+            $script:SourceHealthSummaryLabel.Text = "Last run: {0} | {1} | {2} matched before merge" -f $createdAt, $crawlMode, $totalMatched
+        }
+    }
+
+    $script:SourceHealthList.BeginUpdate()
+    try {
+        $script:SourceHealthList.Items.Clear()
+        foreach ($definition in @(Get-JobCrawlerSourceDefinitions -SourcesConfig $script:CrawlerConfig.Sources)) {
+            $selected = Get-GuiSourceSelectionState -Definition $definition
+            $credentials = Get-GuiSourceCredentialSummary -Definition $definition
+            $missingCredentials = Test-GuiSourceMissingCredentials -Definition $definition
+            $stat = Find-GuiSourceHealthStat -Entry $entry -Definition $definition
+
+            $matches = ""
+            $errors = ""
+            $duration = ""
+            $requests = ""
+            $skips = ""
+            $cacheHits = ""
+            $notes = ""
+            if ($null -ne $stat) {
+                $searchRequests = [int](Get-ConfigProperty -Object $stat -Name "SearchRequests" -DefaultValue 0)
+                $detailRequests = [int](Get-ConfigProperty -Object $stat -Name "DetailRequests" -DefaultValue 0)
+                $skipCount = [int](Get-ConfigProperty -Object $stat -Name "SkippedOld" -DefaultValue 0) +
+                    [int](Get-ConfigProperty -Object $stat -Name "SkippedContract" -DefaultValue 0) +
+                    [int](Get-ConfigProperty -Object $stat -Name "SkippedNoMatch" -DefaultValue 0) +
+                    [int](Get-ConfigProperty -Object $stat -Name "SkippedByCap" -DefaultValue 0)
+                $matches = [string](Get-ConfigProperty -Object $stat -Name "Matches" -DefaultValue 0)
+                $errors = [string](Get-ConfigProperty -Object $stat -Name "Errors" -DefaultValue 0)
+                $duration = ("{0}s" -f [int](Get-ConfigProperty -Object $stat -Name "DurationSeconds" -DefaultValue 0))
+                $requests = [string]($searchRequests + $detailRequests)
+                $skips = [string]$skipCount
+                $cacheHits = [string](Get-ConfigProperty -Object $stat -Name "CacheHits" -DefaultValue 0)
+            }
+
+            if (-not $selected) {
+                $state = "Disabled"
+                $notes = "Will not run."
+            }
+            elseif ($missingCredentials) {
+                $state = "Blocked"
+                $notes = "Set credentials."
+            }
+            elseif ($null -eq $stat) {
+                $state = "No history"
+                $notes = "Run once to collect source metrics."
+            }
+            elseif ([int]$errors -gt 0) {
+                $state = "Errors"
+                $notes = "Check log or credentials."
+            }
+            elseif ([int]$matches -gt 0) {
+                $state = "Healthy"
+                $notes = "Returned matches."
+            }
+            else {
+                $state = "No matches"
+                $notes = "May be query/profile/cap related."
+            }
+
+            $item = New-Object System.Windows.Forms.ListViewItem([string]$definition.ShortLabel)
+            [void]$item.SubItems.Add($state)
+            [void]$item.SubItems.Add($credentials)
+            [void]$item.SubItems.Add($matches)
+            [void]$item.SubItems.Add($errors)
+            [void]$item.SubItems.Add($duration)
+            [void]$item.SubItems.Add($requests)
+            [void]$item.SubItems.Add($skips)
+            [void]$item.SubItems.Add($cacheHits)
+            [void]$item.SubItems.Add($notes)
+
+            switch ($state) {
+                "Blocked" { $item.ForeColor = [System.Drawing.Color]::FromArgb(154, 69, 59) }
+                "Errors" { $item.ForeColor = [System.Drawing.Color]::FromArgb(154, 69, 59) }
+                "No matches" { $item.ForeColor = [System.Drawing.Color]::FromArgb(145, 92, 35) }
+                "Disabled" { $item.ForeColor = [System.Drawing.Color]::FromArgb(94, 110, 130) }
+                "No history" { $item.ForeColor = [System.Drawing.Color]::FromArgb(94, 110, 130) }
+                default { $item.ForeColor = [System.Drawing.Color]::FromArgb(30, 104, 72) }
+            }
+
+            [void]$script:SourceHealthList.Items.Add($item)
+        }
+    }
+    finally {
+        $script:SourceHealthList.EndUpdate()
     }
 }
 
@@ -263,6 +540,7 @@ function Refresh-SourceCheckboxes {
     if (Get-Command Refresh-ReadinessChecklist -ErrorAction SilentlyContinue) {
         Refresh-ReadinessChecklist
     }
+    Refresh-SourceHealthList
 }
 
 function Refresh-ProfileComboBox {
@@ -688,10 +966,11 @@ function Show-ProfileEditorDialog {
     $qualityTable.Dock = [System.Windows.Forms.DockStyle]::Fill
     $qualityTable.Padding = New-Object System.Windows.Forms.Padding(14)
     $qualityTable.ColumnCount = 1
-    $qualityTable.RowCount = 4
+    $qualityTable.RowCount = 5
     Add-ProfileTableColumn -Table $qualityTable -Width 100
     Add-ProfileTableRow -Table $qualityTable -Height 48 -Absolute
     Add-ProfileTableRow -Table $qualityTable -Height 44 -Absolute
+    Add-ProfileTableRow -Table $qualityTable -Height 132 -Absolute
     Add-ProfileTableRow -Table $qualityTable -Height 100
     Add-ProfileTableRow -Table $qualityTable -Height 46 -Absolute
     $qualityTab.Controls.Add($qualityTable)
@@ -709,17 +988,27 @@ function Show-ProfileEditorDialog {
     $qualityHintLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $qualityTable.Controls.Add($qualityHintLabel, 0, 1)
 
+    $qualityChecklistList = New-Object System.Windows.Forms.ListView
+    $qualityChecklistList.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $qualityChecklistList.View = [System.Windows.Forms.View]::Details
+    $qualityChecklistList.FullRowSelect = $true
+    $qualityChecklistList.GridLines = $false
+    [void]$qualityChecklistList.Columns.Add("Area", 126)
+    [void]$qualityChecklistList.Columns.Add("Status", 86)
+    [void]$qualityChecklistList.Columns.Add("Detail", 560)
+    $qualityTable.Controls.Add($qualityChecklistList, 0, 2)
+
     $qualityDetailsBox = New-ProfileEditorTextBox -Multiline
     $qualityDetailsBox.ReadOnly = $true
     $qualityDetailsBox.WordWrap = $true
-    $qualityTable.Controls.Add($qualityDetailsBox, 0, 2)
+    $qualityTable.Controls.Add($qualityDetailsBox, 0, 3)
 
     $qualityButtons = New-Object System.Windows.Forms.FlowLayoutPanel
     $qualityButtons.Dock = [System.Windows.Forms.DockStyle]::Fill
     $qualityButtons.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
     $qualityButtons.WrapContents = $false
     $qualityButtons.Padding = New-Object System.Windows.Forms.Padding(0, 6, 0, 0)
-    $qualityTable.Controls.Add($qualityButtons, 0, 3)
+    $qualityTable.Controls.Add($qualityButtons, 0, 4)
 
     $improveQueriesButton = New-Object System.Windows.Forms.Button
     $improveQueriesButton.Text = "Improve queries"
@@ -759,6 +1048,25 @@ function Show-ProfileEditorDialog {
             }
             else {
                 $qualityScoreLabel.ForeColor = [System.Drawing.Color]::FromArgb(154, 69, 59)
+            }
+
+            $qualityChecklistList.BeginUpdate()
+            try {
+                $qualityChecklistList.Items.Clear()
+                foreach ($check in @($quality.Checklist)) {
+                    $item = New-Object System.Windows.Forms.ListViewItem([string]$check.Area)
+                    [void]$item.SubItems.Add([string]$check.Status)
+                    [void]$item.SubItems.Add([string]$check.Detail)
+                    switch ([string]$check.Level) {
+                        "error" { $item.ForeColor = [System.Drawing.Color]::FromArgb(154, 69, 59) }
+                        "warning" { $item.ForeColor = [System.Drawing.Color]::FromArgb(145, 92, 35) }
+                        default { $item.ForeColor = [System.Drawing.Color]::FromArgb(30, 104, 72) }
+                    }
+                    [void]$qualityChecklistList.Items.Add($item)
+                }
+            }
+            finally {
+                $qualityChecklistList.EndUpdate()
             }
 
             $detailLines = New-Object System.Collections.Generic.List[string]
@@ -802,18 +1110,23 @@ function Show-ProfileEditorDialog {
     $saveButton.Size = New-Object System.Drawing.Size(88, 30)
     $saveButton.Add_Click({
         try {
-            if (@(Get-TextBoxLines $queriesBox).Count -lt 4) {
+            $initialQuality = & $getQualityFromEditor
+            if ($initialQuality.SearchQueryCount -lt 4 -or [bool]$initialQuality.ExactTitleOnlyQueries) {
                 & $mergeQuerySuggestions
             }
             $quality = & $getQualityFromEditor
-            if ($quality.Score -lt 45) {
+            if ($quality.Score -lt 70) {
+                $topFindings = @($quality.Findings | Select-Object -First 3)
+                $findingText = $(if ($topFindings.Count -gt 0) { "`n`nMain points:`n- {0}" -f ($topFindings -join "`n- ") } else { "" })
                 $answer = [System.Windows.Forms.MessageBox]::Show(
-                    ("This profile quality is {0}/100 ({1}). It may return 0 results or noisy results.`n`nSave anyway?" -f $quality.Score, $quality.Level),
+                    ("This profile quality is {0}/100 ({1}). It may return 0 results or noisy results.{2}`n`nSave anyway?" -f $quality.Score, $quality.Level, $findingText),
                     "Profile quality",
                     [System.Windows.Forms.MessageBoxButtons]::YesNo,
                     [System.Windows.Forms.MessageBoxIcon]::Warning
                 )
                 if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) {
+                    $tabs.SelectedTab = $qualityTab
+                    & $updateQualityPreview
                     return
                 }
             }

@@ -44,6 +44,20 @@ function New-OrderedJobRecord {
         }
     }
 
+    if ($ordered.Contains("status") -and $ordered.Contains("applied_date")) {
+        $defaultAppliedDate = ""
+        if (Get-Variable -Name RunDate -Scope Script -ErrorAction SilentlyContinue) {
+            $defaultAppliedDate = [string]$script:RunDate
+        }
+
+        if (Get-Command Get-EffectiveAppliedDate -ErrorAction SilentlyContinue) {
+            $ordered["applied_date"] = Get-EffectiveAppliedDate -Status ([string]$ordered["status"]) -AppliedDate ([string]$ordered["applied_date"]) -DefaultDate $defaultAppliedDate
+        }
+        elseif ([string]::IsNullOrWhiteSpace([string]$ordered["applied_date"]) -and ([string]$ordered["status"]).Trim().ToLowerInvariant() -match "^(applied|interview|offer|rejected|withdrawn)$") {
+            $ordered["applied_date"] = $(if ([string]::IsNullOrWhiteSpace($defaultAppliedDate)) { Get-Date -Format "yyyy-MM-dd" } else { $defaultAppliedDate })
+        }
+    }
+
     return [PSCustomObject]$ordered
 }
 
@@ -464,6 +478,7 @@ function Export-TrackerWorkbookWithExcelCom {
 
         Set-JobTrackerDataValidation -Workbook $workbook -Excel $excel -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
         Set-ReviewPriorityFormulas -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
+        Set-AppliedDateAutoFillFormulas -Excel $excel -Sheet $jobsSheet -ColumnIndex $columnIndex -LastDataRow $lastDataRow
 
         if ($rowCount -gt 0) {
             $dataRange = $jobsSheet.Range($jobsSheet.Cells.Item(2, 1), $jobsSheet.Cells.Item($lastDataRow, $lastColumn))
@@ -923,6 +938,7 @@ function ConvertTo-TrackerRecord {
     if ([string]::IsNullOrWhiteSpace($status)) {
         $status = "new"
     }
+    $appliedDate = Get-EffectiveAppliedDate -Status $status -AppliedDate (Get-RowValue -Row $ExistingRow -Name "applied_date") -DefaultDate $RunDate
 
     $firstSeen = Get-RowValue -Row $ExistingRow -Name "first_seen_date"
     $isNew = "no"
@@ -996,7 +1012,7 @@ function ConvertTo-TrackerRecord {
     return New-OrderedJobRecord @{
         job_id                = $jobId
         status                = $status
-        applied_date          = Get-RowValue -Row $ExistingRow -Name "applied_date"
+        applied_date          = $appliedDate
         first_seen_date       = $firstSeen
         last_seen_date        = $lastSeen
         is_new                = $isNew

@@ -1057,7 +1057,11 @@ function Merge-SimilarJobRows {
     $values["published_date"] = Get-LatestDateText -Rows $rowList -Name "published_date"
     $values["first_seen_date"] = Get-EarliestDateText -Rows $rowList -Name "first_seen_date"
     $values["last_seen_date"] = Get-LatestDateText -Rows $rowList -Name "last_seen_date"
-    $values["applied_date"] = Get-EarliestDateText -Rows $rowList -Name "applied_date"
+    $defaultAppliedDate = ""
+    if (Get-Variable -Name RunDate -Scope Script -ErrorAction SilentlyContinue) {
+        $defaultAppliedDate = [string]$script:RunDate
+    }
+    $values["applied_date"] = Get-EffectiveAppliedDate -Status (Get-RowValue -Row $preferred -Name "status") -AppliedDate (Get-EarliestDateText -Rows $rowList -Name "applied_date") -DefaultDate $defaultAppliedDate
     $values["notes"] = Join-UniqueTextValues -Values @($rowList | ForEach-Object { Get-RowValue -Row $_ -Name "notes" }) -Delimiter " | "
 
     return New-OrderedJobRecord $values

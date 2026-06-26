@@ -112,7 +112,7 @@ Fallback if Windows blocks `.vbs` files: double-click the command launcher:
 Run-CustomJobTracker-GUI.cmd
 ```
 
-The GUI lets you choose a profile, create/edit/duplicate profiles without editing JSON, choose Fast/Default/Deep mode, choose the published-date window, enable or disable sources, see live progress logs, open the tracker, clean old managed cache/log files, force a fresh fetch when needed, and check whether credentials are configured.
+The GUI lets you choose a profile, create/edit/duplicate profiles without editing JSON, choose Fast/Default/Deep mode, choose the published-date window, enable or disable sources, see live progress logs, open the tracker, clean old managed cache/log files, force a fresh fetch when needed, and check whether credentials are configured. The profile editor includes a quality checklist so sparse profiles can be improved before the first crawl, and the launcher has a Health tab showing the latest per-source duration, errors, skipped jobs, cache hits, and matches.
 
 Command-line fallback: double-click:
 
@@ -288,7 +288,7 @@ config\local.runtime.json
 
 Both locations are ignored by Git. They are personal local settings and are not included in public releases.
 
-Profile form fields are intentionally plain text. Put one title, skill, keyword, location, or query per line; the crawler saves a compact `profile_builder` file and generates matching rules, source queries, and fit preferences at load time. The profile editor includes a quality score and an `Improve queries` action to expand overly narrow search queries from the titles and skills you entered.
+Profile form fields are intentionally plain text. Put one title, skill, keyword, location, or query per line; the crawler saves a compact `profile_builder` file and generates matching rules, source queries, and fit preferences at load time. The profile editor includes a quality score, checklist, and an `Improve queries` action to expand overly narrow search queries from the titles and skills you entered. If queries are exact-title-only, the editor expands them before saving to reduce the risk of a 0-result first crawl.
 
 Advanced profiles can override source query pools explicitly under `sources.queries`. The crawler first looks for the source-specific list, then falls back to `api` when a source list is empty:
 

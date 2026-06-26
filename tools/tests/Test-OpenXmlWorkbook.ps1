@@ -123,11 +123,22 @@ try {
         finally {
             $reader.Dispose()
         }
+
+        $workbookEntry = $archive.GetEntry("xl/workbook.xml")
+        $workbookReader = New-Object IO.StreamReader($workbookEntry.Open())
+        try {
+            $workbookXml = $workbookReader.ReadToEnd()
+        }
+        finally {
+            $workbookReader.Dispose()
+        }
     }
     finally {
         $archive.Dispose()
     }
     Assert-OpenXmlWorkbook -Condition ($sheetXml -notmatch '<conditionalFormatting sqref="A2:[A-Z]{2,}\d+') -Message "Expected OpenXML workbook to avoid whole-row conditional formatting fills."
+    Assert-OpenXmlWorkbook -Condition ($sheetXml -match 'TODAY\(\)') -Message "Expected blank Applied date cells to contain the auto-fill formula."
+    Assert-OpenXmlWorkbook -Condition ($workbookXml -match 'iterate="1"') -Message "Expected workbook iterative calculation to be enabled for Applied date timestamps."
 }
 finally {
     Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
